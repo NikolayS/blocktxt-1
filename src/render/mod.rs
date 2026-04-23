@@ -13,18 +13,38 @@ pub mod helpers;
 pub mod hud;
 pub mod theme;
 
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::game::state::GameState;
 pub use theme::Theme;
 
+/// Minimum terminal width required to display the game.
+///
+/// 22 (board + border) + 16 (HUD min) = 38, rounded to 40 for padding.
+pub const MIN_WIDTH: u16 = 40;
+
+/// Minimum terminal height required to display the game.
+///
+/// 20 visible rows + 2 border rows + 2 HUD header/footer = 24.
+pub const MIN_HEIGHT: u16 = 24;
+
 /// Draw one full frame: board + HUD.
+///
+/// If the terminal is smaller than `MIN_WIDTH × MIN_HEIGHT`, draws the
+/// too-small overlay instead of the game.
 pub fn render(frame: &mut Frame, state: &GameState, theme: &Theme) {
     let area = frame.area();
 
-    // Split horizontally: 20 columns for the playfield, rest for HUD.
-    // Playfield: 10 cols × 2 chars/col = 20 chars. Add 2 for border.
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        draw_too_small_overlay(frame, area);
+        return;
+    }
+
+    // Split horizontally: 22 cols for the playfield, rest for HUD.
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -35,4 +55,41 @@ pub fn render(frame: &mut Frame, state: &GameState, theme: &Theme) {
 
     board_view::draw(frame, chunks[0], state, theme);
     hud::draw(frame, chunks[1], state, theme);
+}
+
+/// Draw a centered "terminal too small" overlay.
+///
+/// Replaces the entire frame with a plain message so the user knows
+/// to resize.  Does not crash or leave corrupted output.
+pub fn draw_too_small_overlay(frame: &mut Frame, area: Rect) {
+    let msg = format!(
+        "Terminal too small\nPlease resize to at least\n{}x{}",
+        MIN_WIDTH, MIN_HEIGHT
+    );
+    let overlay_w = 32u16.min(area.width.max(1));
+    let overlay_h = 5u16.min(area.height.max(1));
+    let x = area.x + area.width.saturating_sub(overlay_w) / 2;
+    let y = area.y + area.height.saturating_sub(overlay_h) / 2;
+    let overlay_area = Rect::new(x, y, overlay_w, overlay_h);
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(Text::from(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Terminal too small",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::raw(format!(
+                "Resize to at least {}x{}",
+                MIN_WIDTH, MIN_HEIGHT
+            ))),
+        ]))
+        .block(Block::default().borders(Borders::ALL))
+        .alignment(Alignment::Center),
+        overlay_area,
+    );
+    let _ = msg; // used in the Paragraph above
 }

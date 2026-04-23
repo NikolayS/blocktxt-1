@@ -3,12 +3,13 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
+use ratatui::widgets::{Block, BorderType, Borders};
 use ratatui::Frame;
 
 use crate::game::piece::Piece;
 use crate::game::state::{GameState, LineClearPhase};
 use crate::render::helpers::ghost_y;
-use crate::render::theme::Theme;
+use crate::render::theme::{Theme, BASE, MANTLE, OVERLAY};
 
 /// Width of one cell in terminal columns (each cell is 2 chars wide).
 const CELL_W: u16 = 2;
@@ -20,32 +21,51 @@ const VISIBLE_ROWS: i32 = 20;
 /// Number of columns.
 const COLS: i32 = 10;
 
+/// Filled-cell glyph pair (two Unicode full-block chars).
+const FILLED: &str = "██";
+/// Ghost-cell glyph pair (two light-shade block chars).
+const GHOST: &str = "░░";
+/// Empty-cell glyph pair (two spaces).
+const EMPTY: &str = "  ";
+
 /// Draw the visible 10×20 playfield into `area`.
 ///
-/// Renders:
+/// Renders the board inside a rounded border. Inside:
 ///   1. Locked board cells (rows 20..40).
 ///      During a line-clear animation, full rows are highlighted:
 ///      - Flash phase: REVERSED + BOLD (inverse video).
 ///      - Dim phase: DIM modifier.
-///   2. Ghost piece (hollow, dimmed) at the drop position.
-///   3. Active piece at its current position.
+///   2. Ghost piece (░░, dimmed) at the drop position.
+///   3. Active piece (██) at its current position.
 ///
 /// Takes `&GameState` and `&Theme` — no mutation.
 pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
+    // Draw the bordered playfield container.
+    let board_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(OVERLAY))
+        .style(Style::default().bg(BASE));
+    let inner = board_block.inner(area);
+    frame.render_widget(board_block, area);
+
     // Build the set of animated row indices (absolute board rows), if any.
     let anim_rows: Option<(&[usize], &LineClearPhase)> = state
         .line_clear_anim
         .as_ref()
         .map(|a| (a.rows.as_slice(), &a.phase));
 
-    // 1. Draw border / background dots for empty cells.
+    // 1. Draw background dots / empty cells.
     for vis_row in 0..VISIBLE_ROWS {
         for col in 0..COLS {
-            let x = area.x + (col as u16) * CELL_W;
-            let y = area.y + vis_row as u16 * CELL_H;
-            if x + CELL_W <= area.x + area.width && y < area.y + area.height {
+            let x = inner.x + (col as u16) * CELL_W;
+            let y = inner.y + vis_row as u16 * CELL_H;
+            if x + CELL_W <= inner.x + inner.width && y < inner.y + inner.height {
                 frame.render_widget(
-                    ratatui::widgets::Paragraph::new(Span::raw("  ")),
+                    ratatui::widgets::Paragraph::new(Span::styled(
+                        EMPTY,
+                        Style::default().bg(MANTLE),
+                    )),
                     Rect::new(x, y, CELL_W, CELL_H),
                 );
             }
@@ -62,9 +82,11 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
                 Some(match phase {
                     LineClearPhase::Flash => Style::default()
                         .fg(Color::White)
+                        .bg(Color::White)
                         .add_modifier(Modifier::REVERSED | Modifier::BOLD),
                     LineClearPhase::Dim => Style::default()
-                        .fg(Color::White)
+                        .fg(OVERLAY)
+                        .bg(MANTLE)
                         .add_modifier(Modifier::DIM),
                 })
             } else {
@@ -79,20 +101,22 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
                 } else {
                     theme.color(kind)
                 };
-                let glyph = theme.glyph(kind);
-                let x = area.x + (col as u16) * CELL_W;
-                let y = area.y + vis_row as u16 * CELL_H;
-                if x + CELL_W <= area.x + area.width && y < area.y + area.height {
-                    // Animation overrides normal cell style.
-                    let style = anim_style.unwrap_or_else(|| Style::default().fg(base_color));
-                    let s: String = if anim_style.is_some() {
+                let x = inner.x + (col as u16) * CELL_W;
+                let y = inner.y + vis_row as u16 * CELL_H;
+                if x + CELL_W <= inner.x + inner.width && y < inner.y + inner.height {
+                    let (text, style) = if let Some(anim) = anim_style {
                         // Filled block during animation regardless of glyph.
-                        " ".repeat(CELL_W as usize)
+                        (FILLED, anim)
                     } else {
-                        glyph.to_string().repeat(CELL_W as usize)
+                        let cell_style = if theme.monochrome {
+                            Style::default().fg(base_color)
+                        } else {
+                            Style::default().fg(base_color).bg(BASE)
+                        };
+                        (FILLED, cell_style)
                     };
                     frame.render_widget(
-                        ratatui::widgets::Paragraph::new(Span::styled(s, style)),
+                        ratatui::widgets::Paragraph::new(Span::styled(text, style)),
                         Rect::new(x, y, CELL_W, CELL_H),
                     );
                 }
@@ -109,15 +133,15 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
                 origin: (active.origin.0, ghost_row),
                 ..*active
             };
-            render_piece(frame, area, &ghost, theme, true);
+            render_piece(frame, inner, &ghost, theme, true);
         }
-        render_piece(frame, area, active, theme, false);
+        render_piece(frame, inner, active, theme, false);
     }
 }
 
 /// Draw one piece onto the frame area.
 ///
-/// `is_ghost` renders a dimmer hollow version.
+/// `is_ghost` renders ░░ in the ghost-surface color.
 fn render_piece(frame: &mut Frame, area: Rect, piece: &Piece, theme: &Theme, is_ghost: bool) {
     let color = if theme.monochrome {
         Color::Reset
@@ -136,20 +160,35 @@ fn render_piece(frame: &mut Frame, area: Rect, piece: &Piece, theme: &Theme, is_
             continue;
         }
 
-        let (text, style) = if is_ghost {
-            (
-                "[]".to_string(),
-                Style::default().fg(color).add_modifier(Modifier::DIM),
-            )
+        if is_ghost {
+            use crate::render::theme::GHOST_MOD;
+            let style = if theme.monochrome {
+                Style::default()
+                    .fg(Color::Reset)
+                    .add_modifier(Modifier::DIM)
+            } else {
+                Style::default().fg(GHOST_MOD).bg(BASE)
+            };
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Span::styled(GHOST, style)),
+                Rect::new(x, y, CELL_W, CELL_H),
+            );
         } else {
-            let glyph = theme.glyph(piece.kind);
-            let s = glyph.to_string().repeat(CELL_W as usize);
-            (s, Style::default().fg(color))
-        };
-
-        frame.render_widget(
-            ratatui::widgets::Paragraph::new(Span::styled(text, style)),
-            Rect::new(x, y, CELL_W, CELL_H),
-        );
+            let glyph = if theme.monochrome {
+                theme.glyph(piece.kind)
+            } else {
+                '█'
+            };
+            let s_owned: String = glyph.to_string().repeat(CELL_W as usize);
+            let style = if theme.monochrome {
+                Style::default().fg(Color::Reset)
+            } else {
+                Style::default().fg(color).bg(BASE)
+            };
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Span::styled(s_owned, style)),
+                Rect::new(x, y, CELL_W, CELL_H),
+            );
+        }
     }
 }

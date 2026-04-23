@@ -3,8 +3,11 @@
 //! `render::render(frame, &state, &theme)` is the single public drawing
 //! entry point. It splits the terminal area into:
 //!
-//!   - Playfield: 20 cols wide (10 board cols × 2 char each), 20 rows tall.
-//!   - HUD: everything to the right of the playfield.
+//!   - Playfield: 22 chars wide (10 board cols × 2 char each + 2 border).
+//!   - HUD: 24 chars wide (stats + next-piece preview).
+//!
+//! The composition (46 chars total) is centered horizontally when the
+//! terminal is wider than needed.
 //!
 //! The renderer only reads `&GameState` and never mutates game state.
 
@@ -14,23 +17,30 @@ pub mod hud;
 pub mod theme;
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::game::state::GameState;
 use crate::persistence::HighScoreStore;
 pub use theme::Theme;
 
+use theme::{BASE, OVERLAY, SUBTEXT, TEXT};
+
+/// Playfield width: 10 cells × 2 chars + 2 border = 22 chars.
+const PLAYFIELD_W: u16 = 22;
+/// HUD width: 24 chars (enough for stats + piece shapes).
+const HUD_W: u16 = 24;
+/// Total composition width.
+const COMPOSITION_W: u16 = PLAYFIELD_W + HUD_W;
+
 /// Minimum terminal width required to display the game.
 ///
-/// Per SPEC §3 "SIGWINCH / resize": minimum is 44×24 characters.
-pub const MIN_WIDTH: u16 = 44;
+/// Composition (46) + 6 chars margin = 52.
+pub const MIN_WIDTH: u16 = 52;
 
 /// Minimum terminal height required to display the game.
-///
-/// Per SPEC §3 "SIGWINCH / resize": minimum is 44×24 characters.
 pub const MIN_HEIGHT: u16 = 24;
 
 /// Draw one full frame: board + HUD.
@@ -53,19 +63,29 @@ pub fn render_with_scores(
 ) {
     let area = frame.area();
 
+    // Fill the entire terminal with the base background.
+    frame.render_widget(Block::default().style(Style::default().bg(BASE)), area);
+
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         draw_too_small_overlay(frame, area);
         return;
     }
 
-    // Split horizontally: 22 cols for the playfield, rest for HUD.
+    // Center the composition horizontally when terminal is wider.
+    let h_margin = area.width.saturating_sub(COMPOSITION_W) / 2;
+    let v_margin = area.height.saturating_sub(MIN_HEIGHT) / 2;
+    let comp_area = Rect::new(
+        area.x + h_margin,
+        area.y + v_margin,
+        COMPOSITION_W.min(area.width),
+        area.height.saturating_sub(v_margin),
+    );
+
+    // Split horizontally: playfield left, HUD right.
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(22), // playfield (20 cols + 2 border chars)
-            Constraint::Min(16),    // HUD (min 16 chars)
-        ])
-        .split(area);
+        .constraints([Constraint::Length(PLAYFIELD_W), Constraint::Length(HUD_W)])
+        .split(comp_area);
 
     board_view::draw(frame, chunks[0], state, theme);
     hud::draw_with_scores(frame, chunks[1], state, theme, high_scores);
@@ -76,11 +96,7 @@ pub fn render_with_scores(
 /// Replaces the entire frame with a plain message so the user knows
 /// to resize.  Does not crash or leave corrupted output.
 pub fn draw_too_small_overlay(frame: &mut Frame, area: Rect) {
-    let msg = format!(
-        "Terminal too small\nPlease resize to at least\n{}x{}",
-        MIN_WIDTH, MIN_HEIGHT
-    );
-    let overlay_w = 32u16.min(area.width.max(1));
+    let overlay_w = 34u16.min(area.width.max(1));
     let overlay_h = 5u16.min(area.height.max(1));
     let x = area.x + area.width.saturating_sub(overlay_w) / 2;
     let y = area.y + area.height.saturating_sub(overlay_h) / 2;
@@ -92,18 +108,21 @@ pub fn draw_too_small_overlay(frame: &mut Frame, area: Rect) {
             Line::from(""),
             Line::from(Span::styled(
                 "Terminal too small",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             )),
-            Line::from(Span::raw(format!(
-                "Resize to at least {}x{}",
-                MIN_WIDTH, MIN_HEIGHT
-            ))),
+            Line::from(Span::styled(
+                format!("Resize to at least {}×{}", MIN_WIDTH, MIN_HEIGHT),
+                Style::default().fg(SUBTEXT),
+            )),
         ]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(OVERLAY))
+                .style(Style::default().bg(BASE)),
+        )
         .alignment(Alignment::Center),
         overlay_area,
     );
-    let _ = msg; // used in the Paragraph above
 }

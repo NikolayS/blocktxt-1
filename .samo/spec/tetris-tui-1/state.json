@@ -11,11 +11,11 @@
   "calibration": null,
   "remote_stale": false,
   "coupled_fallback": false,
-  "head_sha": null,
+  "head_sha": "0999f9ac71469debaebf2319f45ff0fd4e012aa1",
   "round_state": "committed",
   "exit": null,
   "created_at": "2026-04-23T03:35:30.092Z",
-  "updated_at": "2026-04-23T08:53:44.396Z",
+  "updated_at": "2026-04-23T08:53:44.459Z",
   "input": {
     "idea": "A terminal UI (TUI) Tetris clone. Single-player, keyboard-controlled, retro ASCII aesthetic. Cross-platform (macOS + Linux, Windows via WSL is fine). Language choice open but prefer something with a good TUI toolkit. Must support falling tetrominoes with SRS rotation, line clears with scoring, level/speed progression, score + high-score persistence to a local file, pause/resume, game-over and restart. Nice-to-haves (v1 stretch or v2): hold piece, next-piece preview, ghost piece, color themes, T-spin detection, 7-bag randomizer. Out of scope: multiplayer, net code, sound."
   }

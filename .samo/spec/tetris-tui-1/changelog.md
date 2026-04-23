@@ -8,3 +8,5 @@
 
 - Round 1 reviews applied (decisions — accepted: 10, rejected: 0, deferred: 0).
 - lead revise retried after timeout (#92)
+
+- user-edit before round 2

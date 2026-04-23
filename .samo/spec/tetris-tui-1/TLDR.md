@@ -18,4 +18,4 @@ See SPEC.md for the full goal statement.
 
 ## Next action
 
-`samospec iterate tetris-tui-1`
+`samospec publish tetris-tui-1`

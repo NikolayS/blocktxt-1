@@ -44,17 +44,25 @@ impl Piece {
 
 /// Cell offsets (col_delta, row_delta) relative to the piece origin.
 ///
-/// Only `Rotation::Zero` is defined for Sprint 1; other rotations are
-/// Sprint 2 (srs.rs).
+/// Shape tables for all four rotation states: Zero, R, Two, L.
+/// Derived by applying 90° CW rotation to the Zero state coordinates
+/// within each piece's canonical bounding box.
+///
+/// I uses a 4×4 bounding box; O uses a 2×2 box; JLSTZ use a 3×3 box.
+/// The origin (top-left of the bounding box) is held fixed across
+/// rotation states so that kick offsets translate cleanly.
 fn shape_offsets(kind: PieceKind, rotation: Rotation) -> &'static [(i32, i32)] {
-    // Sprint 1: only Zero rotation shapes are defined.
-    // Sprint 2 will fill in R, Two, L via srs.rs.
     match rotation {
         Rotation::Zero => shape_offsets_zero(kind),
-        // Placeholder: return same shape as Zero until Sprint 2.
-        _ => shape_offsets_zero(kind),
+        Rotation::R => shape_offsets_r(kind),
+        Rotation::Two => shape_offsets_two(kind),
+        Rotation::L => shape_offsets_l(kind),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Zero rotation (spawning orientation)
+// ---------------------------------------------------------------------------
 
 /// Zero-rotation cell offsets (col, row) relative to bounding-box top-left.
 ///
@@ -63,34 +71,180 @@ fn shape_offsets(kind: PieceKind, rotation: Rotation) -> &'static [(i32, i32)] {
 ///   O                 — 2-wide (cols 0..2), 2 rows.
 fn shape_offsets_zero(kind: PieceKind) -> &'static [(i32, i32)] {
     match kind {
-        // I: row 1 of the 4×2 bbox (standard Guideline Zero state)
-        //    ....
-        //    XXXX
+        // I: 4×4 bounding box. Cells in row 1 (0-indexed).
+        //    . . . .
+        //    X X X X
+        //    . . . .
+        //    . . . .
         PieceKind::I => &[(0, 1), (1, 1), (2, 1), (3, 1)],
-        // O: 2×2
-        //    XX
-        //    XX
+        // O: 2×2 bounding box.
+        //    X X
+        //    X X
         PieceKind::O => &[(0, 0), (1, 0), (0, 1), (1, 1)],
-        // T:
-        //    .X.
-        //    XXX
+        // T: 3×3 bounding box.
+        //    . X .
+        //    X X X
+        //    . . .
         PieceKind::T => &[(1, 0), (0, 1), (1, 1), (2, 1)],
-        // S:
-        //    .XX
-        //    XX.
+        // S: 3×3 bounding box.
+        //    . X X
+        //    X X .
+        //    . . .
         PieceKind::S => &[(1, 0), (2, 0), (0, 1), (1, 1)],
-        // Z:
-        //    XX.
-        //    .XX
+        // Z: 3×3 bounding box.
+        //    X X .
+        //    . X X
+        //    . . .
         PieceKind::Z => &[(0, 0), (1, 0), (1, 1), (2, 1)],
-        // J:
-        //    X..
-        //    XXX
+        // J: 3×3 bounding box.
+        //    X . .
+        //    X X X
+        //    . . .
         PieceKind::J => &[(0, 0), (0, 1), (1, 1), (2, 1)],
-        // L:
-        //    ..X
-        //    XXX
+        // L: 3×3 bounding box.
+        //    . . X
+        //    X X X
+        //    . . .
         PieceKind::L => &[(2, 0), (0, 1), (1, 1), (2, 1)],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// R rotation (90° CW from Zero)
+// ---------------------------------------------------------------------------
+
+/// R-rotation cell offsets (col, row) relative to bounding-box top-left.
+///
+/// Derived by rotating Zero-state cells 90° CW within the bounding box:
+///   (col, row) → (box_rows - 1 - row, col)   [for square boxes]
+/// I box is 4×4; O box is 2×2; JLSTZ box is 3×3.
+fn shape_offsets_r(kind: PieceKind) -> &'static [(i32, i32)] {
+    match kind {
+        // I: 4×4 box. 90° CW: Zero row1 → R col2.
+        //    . . X .
+        //    . . X .
+        //    . . X .
+        //    . . X .
+        PieceKind::I => &[(2, 0), (2, 1), (2, 2), (2, 3)],
+        // O: rotation is identity (2×2 symmetric).
+        PieceKind::O => &[(0, 0), (1, 0), (0, 1), (1, 1)],
+        // T: 3×3 box. 90° CW.
+        //    . X .
+        //    . X X
+        //    . X .
+        PieceKind::T => &[(1, 0), (1, 1), (2, 1), (1, 2)],
+        // S: 3×3 box. 90° CW.
+        //    . X .
+        //    . X X
+        //    . . X
+        PieceKind::S => &[(1, 0), (1, 1), (2, 1), (2, 2)],
+        // Z: 3×3 box. 90° CW.
+        //    . . X
+        //    . X X
+        //    . X .
+        PieceKind::Z => &[(2, 0), (1, 1), (2, 1), (1, 2)],
+        // J: 3×3 box. 90° CW.
+        //    . X X
+        //    . X .
+        //    . X .
+        PieceKind::J => &[(1, 0), (2, 0), (1, 1), (1, 2)],
+        // L: 3×3 box. 90° CW.
+        //    . X .
+        //    . X .
+        //    . X X
+        PieceKind::L => &[(1, 0), (1, 1), (1, 2), (2, 2)],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Two rotation (180° from Zero)
+// ---------------------------------------------------------------------------
+
+/// Two-rotation cell offsets (col, row) relative to bounding-box top-left.
+///
+/// Derived by rotating Zero 180° within the bounding box:
+///   (col, row) → (box_cols - 1 - col, box_rows - 1 - row)
+fn shape_offsets_two(kind: PieceKind) -> &'static [(i32, i32)] {
+    match kind {
+        // I: 4×4 box. 180°: Zero row1 → Two row2.
+        //    . . . .
+        //    . . . .
+        //    X X X X
+        //    . . . .
+        PieceKind::I => &[(0, 2), (1, 2), (2, 2), (3, 2)],
+        // O: rotation is identity.
+        PieceKind::O => &[(0, 0), (1, 0), (0, 1), (1, 1)],
+        // T: 3×3 box. 180°.
+        //    . . .
+        //    X X X
+        //    . X .
+        PieceKind::T => &[(0, 1), (1, 1), (2, 1), (1, 2)],
+        // S: 3×3 box. 180°.
+        //    . . .
+        //    . X X
+        //    X X .
+        PieceKind::S => &[(1, 1), (2, 1), (0, 2), (1, 2)],
+        // Z: 3×3 box. 180°.
+        //    . . .
+        //    X X .
+        //    . X X
+        PieceKind::Z => &[(0, 1), (1, 1), (1, 2), (2, 2)],
+        // J: 3×3 box. 180°.
+        //    . . .
+        //    X X X
+        //    . . X
+        PieceKind::J => &[(0, 1), (1, 1), (2, 1), (2, 2)],
+        // L: 3×3 box. 180°.
+        //    . . .
+        //    X X X
+        //    X . .
+        PieceKind::L => &[(0, 1), (1, 1), (2, 1), (0, 2)],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// L rotation (90° CCW from Zero; equivalently 270° CW)
+// ---------------------------------------------------------------------------
+
+/// L-rotation cell offsets (col, row) relative to bounding-box top-left.
+///
+/// Derived by rotating Zero 90° CCW within the bounding box:
+///   (col, row) → (row, box_cols - 1 - col)   [for square boxes]
+fn shape_offsets_l(kind: PieceKind) -> &'static [(i32, i32)] {
+    match kind {
+        // I: 4×4 box. 90° CCW: Zero row1 → L col1.
+        //    . X . .
+        //    . X . .
+        //    . X . .
+        //    . X . .
+        PieceKind::I => &[(1, 0), (1, 1), (1, 2), (1, 3)],
+        // O: rotation is identity.
+        PieceKind::O => &[(0, 0), (1, 0), (0, 1), (1, 1)],
+        // T: 3×3 box. 90° CCW.
+        //    . X .
+        //    X X .
+        //    . X .
+        PieceKind::T => &[(1, 0), (0, 1), (1, 1), (1, 2)],
+        // S: 3×3 box. 90° CCW.
+        //    X . .
+        //    X X .
+        //    . X .
+        PieceKind::S => &[(0, 0), (0, 1), (1, 1), (1, 2)],
+        // Z: 3×3 box. 90° CCW.
+        //    . X .
+        //    X X .
+        //    X . .
+        PieceKind::Z => &[(1, 0), (0, 1), (1, 1), (0, 2)],
+        // J: 3×3 box. 90° CCW.
+        //    . X .
+        //    . X .
+        //    X X .
+        PieceKind::J => &[(1, 0), (1, 1), (0, 2), (1, 2)],
+        // L: 3×3 box. 90° CCW.
+        //    X X .
+        //    . X .
+        //    . X .
+        PieceKind::L => &[(0, 0), (1, 0), (1, 1), (1, 2)],
     }
 }
 

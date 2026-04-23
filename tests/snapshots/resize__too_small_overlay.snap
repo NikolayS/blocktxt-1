@@ -4,8 +4,8 @@ expression: snapshot
 ---
                     
                     
-┌──────────────────┐
+╭──────────────────╮
 │                  │
 │Terminal too small│
 │Resize to at least│
-└──────────────────┘
+╰──────────────────╯

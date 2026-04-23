@@ -15,6 +15,44 @@ use ratatui::style::Color;
 
 use crate::game::piece::PieceKind;
 
+// ── Catppuccin Mocha palette ──────────────────────────────────────────────────
+// https://github.com/catppuccin/catppuccin
+
+/// Background — 1e1e2e
+pub const BASE: Color = Color::Rgb(30, 30, 46);
+/// Secondary background — 181825
+pub const MANTLE: Color = Color::Rgb(24, 24, 37);
+/// Darkest background — 11111b
+pub const CRUST: Color = Color::Rgb(17, 17, 27);
+/// Primary text — cdd6f4
+pub const TEXT: Color = Color::Rgb(205, 214, 244);
+/// Secondary text — a6adc8
+pub const SUBTEXT: Color = Color::Rgb(166, 173, 200);
+/// Dim / border color — 6c7086
+pub const OVERLAY: Color = Color::Rgb(108, 112, 134);
+
+/// I piece — sky
+pub const I_COLOR: Color = Color::Rgb(137, 220, 235);
+/// O piece — yellow
+pub const O_COLOR: Color = Color::Rgb(249, 226, 175);
+/// T piece — mauve
+pub const T_COLOR: Color = Color::Rgb(203, 166, 247);
+/// S piece — green
+pub const S_COLOR: Color = Color::Rgb(166, 227, 161);
+/// Z piece — pink
+pub const Z_COLOR: Color = Color::Rgb(243, 139, 168);
+/// J piece — blue
+pub const J_COLOR: Color = Color::Rgb(137, 180, 250);
+/// L piece — peach
+pub const L_COLOR: Color = Color::Rgb(250, 179, 135);
+
+/// Ghost piece fill — surface1
+pub const GHOST_MOD: Color = Color::Rgb(69, 71, 90);
+/// "NEW BEST!" highlight — yellow accent
+pub const NEW_BEST: Color = Color::Rgb(249, 226, 175);
+
+// ── Theme struct ──────────────────────────────────────────────────────────────
+
 /// Rendering theme: one color and one glyph per piece kind.
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -62,17 +100,17 @@ impl Theme {
         }
     }
 
-    /// Full RGB truecolor theme with filled-block glyph.
+    /// Full RGB truecolor theme — Catppuccin Mocha palette.
     pub fn truecolor() -> Self {
         Self {
             colors: [
-                Color::Rgb(0, 240, 240), // I — cyan
-                Color::Rgb(240, 240, 0), // O — yellow
-                Color::Rgb(160, 0, 240), // T — purple
-                Color::Rgb(0, 240, 0),   // S — green
-                Color::Rgb(240, 0, 0),   // Z — red
-                Color::Rgb(0, 0, 240),   // J — blue
-                Color::Rgb(240, 160, 0), // L — orange
+                I_COLOR, // I — sky
+                O_COLOR, // O — yellow
+                T_COLOR, // T — mauve
+                S_COLOR, // S — green
+                Z_COLOR, // Z — pink
+                J_COLOR, // J — blue
+                L_COLOR, // L — peach
             ],
             glyphs: ['█', '█', '█', '█', '█', '█', '█'],
             monochrome: false,

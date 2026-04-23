@@ -4,7 +4,6 @@ expression: buf_to_string(&terminal)
 ---
 ╭ stats ───────────╮
 │score  754        │
-│                  │
 ╭ game over ───────╮
 │                  │
 │     Game Over    │
@@ -13,7 +12,8 @@ expression: buf_to_string(&terminal)
 │     level  1     │
 │     lines  0     │
 │                  │
+│     r restart    │
+│      q quit      │
 ╰──────────────────╯
-│LLLLLL            │
 │                  │
 ╰──────────────────╯

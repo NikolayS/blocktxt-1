@@ -235,8 +235,8 @@ pub fn draw_pause_overlay(frame: &mut Frame, area: Rect) {
 /// `state` provides the final score, level, and lines for the summary.
 /// `new_best` triggers a "NEW BEST!" banner in the highlight color.
 pub fn draw_game_over_overlay(frame: &mut Frame, area: Rect, state: &GameState, new_best: bool) {
-    // 9 base lines + 2 for NEW BEST when applicable.
-    let overlay_h = if new_best { 11u16 } else { 9u16 }.min(area.height);
+    // 11 base lines (9 content + 2 rounded border) + 2 for NEW BEST.
+    let overlay_h = if new_best { 13u16 } else { 11u16 }.min(area.height);
     let overlay_w = 20u16.min(area.width);
     let x = area.x + area.width.saturating_sub(overlay_w) / 2;
     let y = area.y + area.height.saturating_sub(overlay_h) / 2;

@@ -61,6 +61,31 @@ fn clear_full_rows_counts_and_shifts_down() {
 }
 
 #[test]
+fn clear_full_rows_on_empty_board_does_not_mutate() {
+    let mut b = Board::empty();
+    b.set(3, 5, PieceKind::I);
+    b.set(3, 10, PieceKind::T);
+    let snapshot_before = b.clone();
+    let cleared = b.clear_full_rows();
+    assert_eq!(cleared, 0);
+    assert_eq!(b, snapshot_before);
+}
+
+#[test]
+fn clear_full_rows_leaves_partial_row_intact() {
+    let mut b = Board::empty();
+    for c in 0..9 {
+        b.set(c, 25, PieceKind::I);
+    }
+    let cleared = b.clear_full_rows();
+    assert_eq!(cleared, 0);
+    for c in 0..9 {
+        assert!(b.is_occupied(c, 25));
+    }
+    assert!(!b.is_occupied(9, 25));
+}
+
+#[test]
 fn block_out_detected() {
     // Spawn cells for O are cols 4 and 5, rows 18..20.
     // Fill one of those cells to simulate block-out condition.

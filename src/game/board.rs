@@ -5,6 +5,7 @@ use crate::game::piece::PieceKind;
 /// Rows 0..20 are the hidden buffer (spawn area).
 /// Rows 20..40 are the visible playfield.
 /// Origin (0, 0) is top-left; x increases rightward, y increases downward.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Board {
     cells: [[Option<PieceKind>; 10]; 40],
 }
@@ -35,28 +36,40 @@ impl Board {
 
     /// Clear all fully-occupied rows, shift everything above down,
     /// and return the number of rows cleared.
+    ///
+    /// When no rows are full, the board is left completely untouched.
     pub fn clear_full_rows(&mut self) -> u8 {
-        let mut cleared: u8 = 0;
-        let mut write_row = 39_usize;
-
-        // Walk rows from bottom to top; copy non-full rows into write_row.
-        let mut read_row = 39_i64;
-        while read_row >= 0 {
-            let r = read_row as usize;
-            if self.cells[r].iter().all(|c| c.is_some()) {
-                // Full row — skip it (don't copy), count as cleared.
-                cleared += 1;
-            } else {
-                // Non-full row — copy to write_row.
-                self.cells[write_row] = self.cells[r];
-                write_row = write_row.saturating_sub(1);
-            }
-            read_row -= 1;
+        // First pass: count full rows. If zero, return without mutating
+        // any cells — this avoids the off-by-one that would erase row 0.
+        let cleared: u8 = self
+            .cells
+            .iter()
+            .filter(|row| row.iter().all(|c| c.is_some()))
+            .count() as u8;
+        if cleared == 0 {
+            return 0;
         }
 
-        // Fill the top rows that were vacated with empty rows.
+        // Second pass: compact non-full rows downward, bottom-up.
+        // `write_row` is the destination; iterate from row 39 down to 0.
+        let mut write_row: i64 = 39;
+        for read_row in (0..40_i64).rev() {
+            let r = read_row as usize;
+            if self.cells[r].iter().all(|c| c.is_some()) {
+                // Full row — skip (do not copy).
+                continue;
+            }
+            self.cells[write_row as usize] = self.cells[r];
+            write_row -= 1;
+        }
+
+        // Any rows above the final write_row were vacated — fill them
+        // with empty cells. `write_row` now points one row above the
+        // topmost compacted row (may be -1 if every row was cleared,
+        // which is impossible here since cleared <= 40 and we only
+        // reach this branch when some full rows existed).
         for r in 0..=write_row {
-            self.cells[r] = [None; 10];
+            self.cells[r as usize] = [None; 10];
         }
 
         cleared

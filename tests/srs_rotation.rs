@@ -1,25 +1,19 @@
-use blocktxt::game::piece::{spawn, PieceKind};
+use blocktxt::game::piece::{spawn, PieceKind, Rotation};
 use blocktxt::game::srs::{rotate, RotationDir};
 
 /// Red test — Sprint 2 will implement srs::rotate.
 ///
-/// Asserts that rotating the I piece clockwise from state Zero via
-/// `srs::rotate` produces a piece whose origin has moved by the
-/// expected SRS kick offset. Sprint 1's srs::rotate is
-/// `unimplemented!()`, so this test panics; #[ignore] keeps CI green.
+/// For the I piece, the SRS Zero→R wall-kick table starts with the
+/// `(0, 0)` offset on an open board — so rotation succeeds without
+/// displacing the origin. Sprint 1's `srs::rotate` is
+/// `unimplemented!()`, so this test panics; `#[ignore]` keeps CI green
+/// until Sprint 2.
 #[test]
 #[ignore = "red: Sprint 2 will implement srs::rotate"]
 fn srs_i_rotation_clockwise_applies_kick_offset() {
     let piece = spawn(PieceKind::I);
-    // Expected: CW rotation from Zero→R succeeds (no board, no collision).
-    let rotated = rotate(&piece, RotationDir::Cw)
-        .expect("CW rotation of I from Zero should succeed with no board obstacles");
-    // The rotated piece origin must differ from the spawn origin by the
-    // SRS Zero→R kick offset for I: (0, 0) is the first test point
-    // (no displacement needed on an open board), but the rotation
-    // state must change.
-    assert_ne!(
-        rotated.origin, piece.origin,
-        "expected origin to shift under SRS kick for I CW"
-    );
+    let rotated = rotate(&piece, RotationDir::Cw).expect("rotation ok");
+    assert_eq!(rotated.rotation, Rotation::R);
+    // I Zero→R: (0, 0) kick on an open board — origin does not move.
+    assert_eq!(rotated.origin, piece.origin);
 }

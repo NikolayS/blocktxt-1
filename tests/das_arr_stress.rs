@@ -133,10 +133,7 @@ fn no_extra_move_between_arr_boundaries() {
     buf.clear();
 
     // Tick halfway through the first ARR window — no extra move.
-    t.tick(
-        base + Duration::from_millis(DAS_MS + ARR_MS / 2),
-        &mut buf,
-    );
+    t.tick(base + Duration::from_millis(DAS_MS + ARR_MS / 2), &mut buf);
     assert!(
         buf.is_empty(),
         "mid-ARR tick should not emit move; got {buf:?}"
@@ -212,7 +209,10 @@ fn das_boundary_sweep_0_to_500() {
         // key (prevents release-inference from clearing `held`).
         let mut step = 10u64;
         while step < held_ms {
-            t.translate_event(&key_press(KeyCode::Right), base + Duration::from_millis(step));
+            t.translate_event(
+                &key_press(KeyCode::Right),
+                base + Duration::from_millis(step),
+            );
             step += 10;
         }
 

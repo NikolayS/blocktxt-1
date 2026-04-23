@@ -96,12 +96,26 @@ fn assert_piece_in_bounds(state: &GameState) {
     }
 }
 
-/// Score and lines_cleared must never decrease across non-restart ticks.
-/// (On Restart they reset to 0, which is fine — we track transitions.)
-fn assert_no_negative_score(state: &GameState) {
+/// Level must always be ≥ 1 (starts at 1, only ever increases).
+fn assert_level_progression_valid(state: &GameState) {
     // score and lines_cleared are u32; they cannot go negative by type.
-    // Confirm level is ≥ 1.
     assert!(state.level >= 1, "level must be ≥ 1, got {}", state.level);
+}
+
+/// Score must never decrease between two ticks that do not cross a reset
+/// boundary (Restart or GameOver → Playing).  Returns the score to carry
+/// forward as `last_score` for the next tick.
+fn assert_score_monotonic(state: &GameState, last_score: u32, reset_boundary_crossed: bool) -> u32 {
+    if reset_boundary_crossed {
+        // Restart / game-over cycle resets score to 0; accept any new value.
+        return state.score;
+    }
+    assert!(
+        state.score >= last_score,
+        "score decreased from {last_score} to {} across a non-reset tick",
+        state.score
+    );
+    state.score
 }
 
 #[test]
@@ -115,6 +129,7 @@ fn stress_5000_ticks_no_panic_consistent() {
 
     let mut game_overs_observed: u64 = 0;
     let mut restarts_sent: u64 = 0;
+    let mut last_score: u32 = 0;
 
     for _tick in 0..TICKS {
         let inputs = sample_inputs(&mut rng);
@@ -123,21 +138,27 @@ fn stress_5000_ticks_no_panic_consistent() {
             restarts_sent += 1;
         }
 
-        // Count game-overs *before* step so we can detect the transition.
+        // Phase at start of tick — used to detect reset boundaries.
         let was_game_over = matches!(state.phase, Phase::GameOver { .. });
+        let had_restart_input = inputs.contains(&Input::Restart);
 
         let _events = state.step(dt, &inputs);
 
-        // Detect game-over transitions.
-        if was_game_over && matches!(state.phase, Phase::Playing) {
-            // A Restart just moved us from GameOver → Playing.
+        // Detect game-over transitions (GameOver → Playing via Restart).
+        let crossed_to_playing = was_game_over && matches!(state.phase, Phase::Playing);
+        if crossed_to_playing {
             game_overs_observed += 1;
         }
+
+        // A reset boundary is crossed whenever we left GameOver this tick,
+        // OR a Restart input was issued (which resets even in Playing).
+        let reset_boundary_crossed = crossed_to_playing || had_restart_input;
 
         // Internal consistency checks — must not panic or assert-fail.
         assert_board_consistent(&state);
         assert_piece_in_bounds(&state);
-        assert_no_negative_score(&state);
+        assert_level_progression_valid(&state);
+        last_score = assert_score_monotonic(&state, last_score, reset_boundary_crossed);
     }
 
     // Sanity: if any restarts were sent (and they were, ~2 % of 5000 = ~100),
@@ -159,11 +180,7 @@ fn stress_5000_ticks_no_panic_consistent() {
 
     // If we observed at least one game-over cycle, score resets, so the
     // final score may be low.  Just confirm it did not overflow (u32 max).
-    assert!(
-        state.score < u32::MAX,
-        "score overflowed: {}",
-        state.score
-    );
+    assert!(state.score < u32::MAX, "score overflowed: {}", state.score);
     assert!(
         state.lines_cleared < 100_000,
         "lines_cleared implausibly high: {}",

@@ -1,18 +1,20 @@
 //! Persistence failure-mode regression suite (SPEC §5 / Sprint 4 Track D).
 //!
-//! Covers:
-//!   - Symlink attack: check_dir_safety returns UnsafeSymlink.
-//!   - World-writable parent: init still works (only data dir hardened).
-//!   - Corrupt + load cycle: garbage JSON → rename to .corrupt.<ts>;
-//!     second corrupt → distinct suffix; 6 total → oldest pruned to cap 5.
-//!   - Disk-full simulation: skipped (documented below).
-//!   - Wrong owner: gated cfg(unix) + ignore if not root.
+//! These tests complement the unit-level coverage in `tests/persistence.rs`
+//! (added in PR #15).  Duplicates of the symlink/corrupt-rename/cap-5 tests
+//! are omitted here to keep `tests/` clean.  Coverage added by this file:
+//!   - World-writable *parent* dir: data dir creation and safety-check
+//!     still succeed (only the data dir itself needs hardening).
+//!   - Wrong-owner rejection: gated `#[cfg(unix)]` + `#[ignore]` — requires
+//!     root to exercise (see test doc-comment for the manual plan).
+//!   - Two corrupt loads → distinct backup paths (exercises the counter
+//!     suffix in `unique_corrupt_path`).
+//!   - `unique_corrupt_path` collision avoidance across repeated calls.
+//!   - Load-save-load accumulation: multiple sessions add up correctly.
+//!   - Disk-full simulation: documented as a manual-test-plan item because
+//!     the codebase does not expose a mockable filesystem trait.
 
-use std::{
-    fs,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs, path::PathBuf};
 
 use tempfile::TempDir;
 
@@ -40,45 +42,13 @@ fn make_score(score: u32) -> HighScore {
     }
 }
 
-// ── symlink attack ────────────────────────────────────────────────────────
-
-/// `check_dir_safety` on a path that IS a symlink must return UnsafeSymlink.
-#[test]
-#[cfg(unix)]
-fn symlink_attack_rejected() {
-    let tmp = tempfile::tempdir().unwrap();
-    let real_dir = tmp.path().join("real");
-    fs::create_dir(&real_dir).unwrap();
-
-    let link_path = tmp.path().join("link");
-    std::os::unix::fs::symlink(&real_dir, &link_path).unwrap();
-
-    let result = check_dir_safety(&link_path);
-    assert!(
-        matches!(result, Err(PersistenceError::UnsafeSymlink)),
-        "expected UnsafeSymlink, got {result:?}"
-    );
-}
-
-/// On non-Unix, just assert the function succeeds (no symlink check).
-#[test]
-#[cfg(not(unix))]
-fn symlink_not_checked_on_non_unix() {
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().join("data");
-    create_dir_mode_0700(&dir).unwrap();
-    // Should be Ok on non-Unix regardless.
-    assert!(check_dir_safety(&dir).is_ok());
-}
-
 // ── world-writable parent ─────────────────────────────────────────────────
 
 /// A world-writable parent directory must NOT prevent the data dir itself
 /// from being created with mode 0o700 and passing safety checks.
 ///
-/// On macOS the sticky bit (0o1777 on /tmp) is normally set; using a
-/// controlled tempdir avoids that.  We chmod the *parent* to 0o777 and
-/// verify `create_dir_mode_0700` + `check_dir_safety` on the child still work.
+/// Covers a scenario `tests/persistence.rs` does not: the parent is hostile
+/// but the data dir still gets hardened correctly.
 #[test]
 #[cfg(unix)]
 fn world_writable_parent_does_not_block_data_dir() {
@@ -140,42 +110,12 @@ fn wrong_owner_rejected() {
 
 // ── corrupt + load cycle ──────────────────────────────────────────────────
 
-/// Write garbage JSON → load returns empty store and renames to .corrupt.<ts>.
-#[test]
-fn corrupt_file_renamed_on_load() {
-    let (_tmp, dir) = make_tmp_dir();
-    let path = scores_path(&dir);
-
-    fs::write(&path, b"this is not json {{{{").unwrap();
-    assert!(path.exists(), "corrupt file must exist before load");
-
-    let store = load(&dir).expect("load should succeed with fallback");
-    assert_eq!(
-        store.top(10).len(),
-        0,
-        "load of corrupt file should return empty store"
-    );
-    assert!(!path.exists(), "corrupt file should be renamed away");
-
-    // A .corrupt.<ts> sibling must now exist.
-    let prefix = format!("{}.corrupt.", path.display());
-    let siblings: Vec<_> = fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .filter(|e| {
-            e.path()
-                .to_str()
-                .map(|s| s.starts_with(&prefix))
-                .unwrap_or(false)
-        })
-        .collect();
-    assert!(
-        !siblings.is_empty(),
-        "at least one .corrupt.<ts> backup must exist"
-    );
-}
-
 /// Two corrupt loads in quick succession must use distinct backup paths.
+///
+/// Complements `tests/persistence.rs::load_corrupt_renames_and_returns_empty`
+/// which only exercises a single corruption.  This test verifies the
+/// counter-suffix path in `unique_corrupt_path` when two renames happen in
+/// the same second.
 #[test]
 fn two_corrupt_loads_distinct_suffix() {
     let (_tmp, dir) = make_tmp_dir();
@@ -209,61 +149,6 @@ fn two_corrupt_loads_distinct_suffix() {
     assert_ne!(
         siblings[0], siblings[1],
         "two corrupt files must have distinct paths"
-    );
-}
-
-/// Six corrupt loads → only 5 backups kept (oldest pruned).
-///
-/// We force distinct timestamps by writing the backup files directly with
-/// `unique_corrupt_path` and synthetic mtime ordering, then load once more
-/// (the 7th action) and verify pruning.
-///
-/// Because `unique_corrupt_path` uses `SystemTime::now()` which can repeat
-/// within a second on fast machines, we use the counter-suffix variant.
-/// We create 5 pre-existing backups, write a 6th corrupt file, load, and
-/// assert that exactly 5 backups remain after pruning.
-#[test]
-fn corrupt_cap_five_backups() {
-    let (_tmp, dir) = make_tmp_dir();
-    let path = scores_path(&dir);
-
-    // Plant 5 fake backups with earlier timestamps (mtime set implicitly
-    // by creation order — all within the same second, so unique_corrupt_path
-    // will use counter suffixes for collisions).
-    let now_secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    // Use timestamps well in the past to guarantee oldest-first ordering.
-    for i in 0u64..5 {
-        let fake_backup = PathBuf::from(format!(
-            "{}.corrupt.{}",
-            path.display(),
-            now_secs - 100 + i
-        ));
-        fs::write(&fake_backup, b"old backup").unwrap();
-    }
-
-    // Now write the 6th corrupt file and load.
-    fs::write(&path, b"not json at all").unwrap();
-    let store = load(&dir).unwrap();
-    assert_eq!(store.top(10).len(), 0, "fallback must return empty store");
-
-    // Count .corrupt.* siblings.
-    let base_str = path.to_str().unwrap();
-    let prefix = format!("{base_str}.corrupt.");
-    let siblings: Vec<_> = fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.to_str().map(|s| s.starts_with(&prefix)).unwrap_or(false))
-        .collect();
-
-    assert_eq!(
-        siblings.len(),
-        5,
-        "after 6 corrupt loads, exactly 5 backups must remain; got {}: {siblings:?}",
-        siblings.len()
     );
 }
 

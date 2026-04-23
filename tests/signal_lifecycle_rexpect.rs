@@ -11,11 +11,18 @@
 ///
 /// # Cleanup strategy
 ///
-/// `blocktxt` does not handle SIGTERM, so `PtyProcess::exit()` (SIGTERM +
-/// blocking waitpid loop) hangs forever.  The `PtyProcess::Drop` impl has
-/// the same problem.  We avoid the hang by:
-///   1. Sending SIGKILL via `nix::kill` directly.
-///   2. Calling `std::mem::forget(proc)` to skip the blocking Drop.
+/// NOTE: rexpect's PtyProcess::exit() calls a blocking waitpid that
+/// times out before blocktxt's flag-based SIGTERM handler can observe
+/// the flag on its next ~16 ms tick.  Using SIGKILL + mem::forget
+/// skips both signals and the wait.
+///
+/// `blocktxt` *does* register a SIGTERM handler
+/// (`src/signals.rs::install()` sets `signal_hook::flag::register(SIGTERM,
+/// &flags.shutdown)`), but it is polled from the main loop on each tick;
+/// between SIGTERM delivery and the next tick, `PtyProcess::exit()`'s
+/// waitpid loop can race and time out.  We avoid that flakiness entirely
+/// by force-killing via `nix::kill(_, SIGKILL)` and then using
+/// `std::mem::forget(proc)` to skip the blocking Drop.
 ///
 /// This leaks the `PtyProcess` handle (file descriptors + pid tracking)
 /// within the test process, which is acceptable for a test binary that

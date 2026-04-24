@@ -1,7 +1,10 @@
 ---
-source: tests/resize.rs
-expression: snapshot
+source: tests/title_screen.rs
+expression: buf_to_string(&terminal)
 ---
+                                                                                
+                                                                                
+                                                                                
                                                                                 
        ██████╗ ██╗      ██████╗  ██████╗██╗  ██╗████████╗██╗  ██╗████████╗      
        ██╔══██╗██║     ██╔═══██╗██╔════╝██║ ██╔╝╚══██╔══╝╚██╗██╔╝╚══██╔══╝      
@@ -12,11 +15,11 @@ expression: snapshot
                       a terminal falling-block puzzle game                      
                                                                                 
                              ╭─ high scores ──────╮                             
-                             │                    │                             
-                             │    no scores yet   │                             
-                             │                    │                             
-                             │                    │                             
-                             │                    │                             
+                             │   1.      12 345   │                             
+                             │   2.       9 200   │                             
+                             │   3.       6 140   │                             
+                             │    4.         —    │                             
+                             │    5.         —    │                             
                              │                    │                             
                              │                    │                             
                              ╰────────────────────╯                             

@@ -14,6 +14,7 @@ use blocktxt::render::{self, Theme, MIN_HEIGHT, MIN_WIDTH};
 
 fn fake_state() -> GameState {
     let clock = Box::new(FakeClock::new(Instant::now()));
+    // Game starts in Title phase (no active piece).
     GameState::new(42, clock)
 }
 

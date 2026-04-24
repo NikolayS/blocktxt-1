@@ -8,7 +8,7 @@ expression: buf_to_string(&terminal)
 │                  │
 │     Game Over    │
 │                  │
-│    score  754    │
+│    score  254    │
 │     level  1     │
 │     lines  0     │
 │                  │

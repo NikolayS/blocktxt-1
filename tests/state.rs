@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 fn make_game(seed: u64) -> (GameState, FakeClock) {
     let origin = Instant::now();
     let clock = FakeClock::new(origin);
-    let gs = GameState::new(seed, Box::new(clock.clone()));
+    let mut gs = GameState::new(seed, Box::new(clock.clone()));
+    // Transition to Playing so game-logic tests start with an active piece.
+    gs.step(Duration::ZERO, &[Input::StartGame]);
     (gs, clock)
 }
 
@@ -328,27 +330,30 @@ fn hard_drop_scores_2_per_cell() {
 
 // ── Restart seed reuse (#24) ─────────────────────────────────────────────────
 
-/// Restart with the original seed must produce the same first piece as a fresh
-/// GameState with the same seed.
+/// Restart (from Playing → Title → StartGame) must produce the same first piece
+/// as the initial StartGame, because both use the same original seed.
 #[test]
 fn restart_reuses_original_seed() {
     let seed = 42;
     let (mut gs, _clock) = make_game(seed);
 
-    // Remember the first piece kind.
+    // Remember the first piece kind (make_game already issued StartGame).
     let first_kind_before = gs.active.unwrap().kind;
 
-    // Hard-drop several pieces to advance the bag, then Restart.
+    // Hard-drop several pieces to advance the bag, then Restart → Title.
     for _ in 0..5 {
         gs.step(Duration::ZERO, &[Input::HardDrop]);
     }
+    // Restart goes to Title (no active piece).
     gs.step(Duration::ZERO, &[Input::Restart]);
+    assert!(gs.active.is_none(), "Title: no active piece after Restart");
 
-    // After Restart, the first piece must match the original first piece.
+    // StartGame from Title should replay from the original seed.
+    gs.step(Duration::ZERO, &[Input::StartGame]);
     let first_kind_after = gs.active.unwrap().kind;
     assert_eq!(
         first_kind_after, first_kind_before,
-        "Restart must replay from the original seed"
+        "StartGame after Restart must replay from the original seed"
     );
 
     // Seed field must be preserved.

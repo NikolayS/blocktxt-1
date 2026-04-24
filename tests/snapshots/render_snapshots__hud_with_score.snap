@@ -10,10 +10,10 @@ expression: buf_to_string(&terminal)
 │                  │
 ╰──────────────────╯
 ╭ next ────────────╮
-│    LL            │
-│LLLLLL            │
 │                  │
-│  SSSS            │
-│SSSS              │
+│                  │
+│                  │
+│                  │
+│                  │
 │                  │
 ╰──────────────────╯

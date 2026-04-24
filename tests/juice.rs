@@ -19,7 +19,10 @@ use blocktxt::{GameOverZoom, Input, Phase};
 fn make_game(seed: u64) -> (GameState, FakeClock) {
     let origin = Instant::now();
     let clock = FakeClock::new(origin);
-    let gs = GameState::new(seed, Box::new(clock.clone()));
+    let mut gs = GameState::new(seed, Box::new(clock.clone()));
+    // Transition Title → Playing so juice animations start (spawn-fade
+    // fires on the first real piece, not in Title).
+    gs.step(Duration::ZERO, &[Input::StartGame]);
     (gs, clock)
 }
 

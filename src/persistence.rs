@@ -73,6 +73,11 @@ impl HighScoreStore {
         &self.scores[..end]
     }
 
+    /// Removes all entries in-place (used by the Title-screen reset flow).
+    pub fn clear(&mut self) {
+        self.scores.clear();
+    }
+
     /// Inserts a score in sorted position.
     ///
     /// Returns `true` if this is a new personal best for the name

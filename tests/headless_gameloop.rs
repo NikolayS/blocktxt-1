@@ -71,27 +71,32 @@ fn headless_scripted_inputs_no_panic() {
     // Simply reaching here is the assertion.
 }
 
-/// Verify that Restart input transitions from GameOver back to Playing.
+/// Verify that Restart input transitions from GameOver back to Title
+/// (the player must press any key to start a new game from Title).
 #[test]
 fn headless_restart_from_game_over() {
     let clock = Box::new(FakeClock::new(Instant::now()));
     let mut state = GameState::new(0, clock);
 
+    // Transition from Title to Playing first.
+    let dt = Duration::from_millis(16);
+    state.step(dt, &[Input::StartGame]);
+
     // Drive game to game-over by stacking pieces at the top.
     // Hard-drop 30 times; at some point the spawn zone will be blocked.
-    let dt = Duration::from_millis(16);
     for _ in 0..30 {
         state.step(dt, &[Input::HardDrop]);
     }
 
-    // Whether or not game-over occurred, Restart should always work.
+    // Whether or not game-over occurred, Restart should return to Title.
     state.step(dt, &[Input::Restart]);
 
-    // After restart we should be in Playing phase.
+    // After restart we should be in Title phase (new design: GameOver →
+    // Title, then any key → Playing).
     use blocktxt::Phase;
     assert!(
-        matches!(state.phase, Phase::Playing),
-        "after Restart, phase should be Playing; got {:?}",
+        matches!(state.phase, Phase::Title),
+        "after Restart from GameOver, phase should be Title; got {:?}",
         state.phase
     );
 }

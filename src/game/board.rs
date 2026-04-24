@@ -1,20 +1,32 @@
 use crate::game::piece::PieceKind;
 
-/// 10-column × 40-row playfield.
+/// 12-column × 48-row playfield (originality-pass dimensions).
 ///
-/// Rows 0..20 are the hidden buffer (spawn area).
-/// Rows 20..40 are the visible playfield.
+/// Rows 0..24 are the hidden buffer (spawn area).
+/// Rows 24..48 are the visible playfield.
 /// Origin (0, 0) is top-left; x increases rightward, y increases downward.
+///
+/// The stadium-style 12×24 visible area is an intentional departure from the
+/// canonical 10×20 playfield for trade-dress safety (see SPEC §1a).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Board {
-    cells: [[Option<PieceKind>; 10]; 40],
+    cells: [[Option<PieceKind>; 12]; 48],
 }
+
+/// Number of columns in the playfield (logical width).
+pub const COLS: usize = 12;
+/// Number of visible rows shown to the player.
+pub const VISIBLE_ROWS: usize = 24;
+/// Number of hidden buffer rows above the visible area.
+pub const BUFFER_ROWS: usize = 24;
+/// Total rows (visible + buffer).
+pub const TOTAL_ROWS: usize = VISIBLE_ROWS + BUFFER_ROWS;
 
 impl Board {
     /// Return an empty board with no occupied cells.
     pub fn empty() -> Self {
         Self {
-            cells: [[None; 10]; 40],
+            cells: [[None; COLS]; TOTAL_ROWS],
         }
     }
 
@@ -23,7 +35,7 @@ impl Board {
     /// Out-of-bounds coordinates always return true so that collision
     /// checks treat walls and floor as solid.
     pub fn is_occupied(&self, col: i32, row: i32) -> bool {
-        if !(0..10).contains(&col) || !(0..40).contains(&row) {
+        if !(0..COLS as i32).contains(&col) || !(0..TOTAL_ROWS as i32).contains(&row) {
             return true;
         }
         self.cells[row as usize][col as usize].is_some()
@@ -38,7 +50,7 @@ impl Board {
     ///
     /// Returns `None` for out-of-bounds coordinates.
     pub fn cell_kind(&self, col: usize, row: usize) -> Option<PieceKind> {
-        if col >= 10 || row >= 40 {
+        if col >= COLS || row >= TOTAL_ROWS {
             return None;
         }
         self.cells[row][col]
@@ -61,9 +73,10 @@ impl Board {
         }
 
         // Second pass: compact non-full rows downward, bottom-up.
-        // `write_row` is the destination; iterate from row 39 down to 0.
-        let mut write_row: i64 = 39;
-        for read_row in (0..40_i64).rev() {
+        // `write_row` is the destination; iterate from the bottom up.
+        let last = (TOTAL_ROWS - 1) as i64;
+        let mut write_row: i64 = last;
+        for read_row in (0..TOTAL_ROWS as i64).rev() {
             let r = read_row as usize;
             if self.cells[r].iter().all(|c| c.is_some()) {
                 // Full row — skip (do not copy).
@@ -75,11 +88,9 @@ impl Board {
 
         // Any rows above the final write_row were vacated — fill them
         // with empty cells. `write_row` now points one row above the
-        // topmost compacted row (may be -1 if every row was cleared,
-        // which is impossible here since cleared <= 40 and we only
-        // reach this branch when some full rows existed).
+        // topmost compacted row.
         for r in 0..=write_row {
-            self.cells[r as usize] = [None; 10];
+            self.cells[r as usize] = [None; COLS];
         }
 
         cleared

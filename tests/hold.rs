@@ -217,11 +217,11 @@ fn hold_on_spawn_block_out_game_overs() {
     let held_kind = gs.hold.unwrap();
 
     // Fill the spawn rows so the held piece cannot spawn.
-    // Spawn position: most pieces at (col=3, row=18), cells at rows 18-19.
-    // Fill rows 18 and 19 completely.
-    for col in 0..10usize {
-        gs.board.set(col, 18, blocktxt::game::piece::PieceKind::O);
-        gs.board.set(col, 19, blocktxt::game::piece::PieceKind::O);
+    // Spawn position: most pieces at (col=4, row=22), cells at rows 22-23.
+    // Fill rows 22 and 23 completely.
+    for col in 0..blocktxt::game::board::COLS {
+        gs.board.set(col, 22, blocktxt::game::piece::PieceKind::O);
+        gs.board.set(col, 23, blocktxt::game::piece::PieceKind::O);
     }
 
     // Trigger hold: the held kind should try to spawn into occupied cells.
@@ -273,13 +273,15 @@ fn hold_during_line_clear_does_nothing() {
     let mut gs = GameState::new(42, Box::new(clock.clone()));
     gs.step(Duration::ZERO, &[Input::StartGame]);
 
-    // Fill row 39 (bottom) completely to trigger a line-clear anim.
-    for col in 0..10usize {
-        gs.board.set(col, 39, blocktxt::game::piece::PieceKind::I);
+    // Fill the bottom row completely to trigger a line-clear anim.
+    let bottom = blocktxt::game::board::TOTAL_ROWS - 1;
+    for col in 0..blocktxt::game::board::COLS {
+        gs.board
+            .set(col, bottom, blocktxt::game::piece::PieceKind::I);
     }
     // Inject anim directly (simpler than playing to clear).
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),

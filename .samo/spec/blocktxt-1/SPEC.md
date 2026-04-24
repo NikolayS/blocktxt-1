@@ -16,6 +16,15 @@ The project name `blocktxt` is non-derivative. Piece names (I, O, T, S, Z, J, L)
 
 **Release checklist item.** Tagging v0.1.0 requires running `scripts/check-naming.sh`, which greps source + release artifacts for the prohibited trademark term and fails the release if any occurrence is found. CI runs the same check on `main`.
 
+**Originality pass (v0.2).** Four visual/layout axes were changed to be deliberately distinct from any specific commercial falling-block implementation. The public mathematical specifications (SRS kicks, 7-bag, Guideline scoring formula) are preserved verbatim; only presentation changes.
+
+- **Playfield dimensions.** 12 columns × 24 visible rows (with a 24-row hidden buffer → 48 rows total), not 10×20. Board constants live in `game/board.rs` (`COLS`, `VISIBLE_ROWS`, `BUFFER_ROWS`, `TOTAL_ROWS`). The "stadium" 12-wide field is intentionally looser than the canonical 10-wide field.
+- **Piece-color assignments.** Each piece kind is bound to a `PaletteSlot` hue class that differs from the canonical mapping: I→orange, O→pink, T→green, S→blue, Z→yellow, J→purple, L→cyan. The permutation is identical across every palette (Tokyo Night, Catppuccin Mocha, Gruvbox Dark, Nord, Dracula) and enforced by a unit test in `tests/theme.rs`. RGB values are unchanged; only the lookup is permuted via `PIECE_COLOR_INDEX` in `render/theme.rs`.
+- **Cell glyphs.** Filled cells render as `▰▰` (U+25B0 "Black Parallelogram") rather than the canonical `██` full-block. The flash-frame glyph used at the start of a line clear is `▣▣` (U+25A3). Ghost cells remain `░░`. Monochrome mode keeps per-kind ASCII letters for accessibility.
+- **Line-clear animation.** The three-phase Flash/Dim/Collapse animation is replaced with a two-phase Flash (50 ms) → WipeOutward (200 ms) where cleared rows collapse from the center columns outward. Wipe radius is computed by `render::board_view::wipe_radius_cells(elapsed_ms)` and grows to cover the full board width as the phase ends.
+
+Rationale: all four changes were driven by a user directive invoking *Tetris Holding v. Xio Interactive, Inc.* (2012, D.N.J.) as precedent for trade-dress enforcement on falling-block presentations. The trademark-scrub posture (see `scripts/check-naming.sh` + the "Release checklist item" above) is unchanged.
+
 ## 2. User stories
 
 1. **Keyboard-native dev on macOS.** As a developer who lives in iTerm2/Ghostty/Alacritty, I want to run the binary in a terminal tab and immediately play a full game with arrow-key / WASD / vim-style bindings, so I can take a five-minute break without leaving my terminal workflow. Outcome: the binary launches into a playable board in under 200 ms, and I can clear lines, pause with `p`, and quit with `q` without reading docs.

@@ -46,12 +46,13 @@ fn sample_inputs(rng: &mut ChaCha8Rng) -> Vec<Input> {
     }
 }
 
-/// Board consistency: every occupied cell must be in bounds (0..10, 0..40).
+/// Board consistency: every occupied cell must be in bounds.
 /// The `is_occupied` implementation returns `true` for out-of-bounds, so if
 /// any in-bounds cell is occupied we can read it back consistently.
 fn assert_board_consistent(state: &GameState) {
-    for row in 0i32..40 {
-        for col in 0i32..10 {
+    use blocktxt::game::board::{COLS, TOTAL_ROWS};
+    for row in 0i32..(TOTAL_ROWS as i32) {
+        for col in 0i32..(COLS as i32) {
             // cell_kind uses usize; is_occupied uses i32.
             // They must agree: occupied ↔ Some(_).
             let occupied = state.board.is_occupied(col, row);
@@ -79,17 +80,18 @@ fn assert_board_consistent(state: &GameState) {
     }
 }
 
-/// Piece must be within the extended buffer (cols 0..10, rows -2..40).
+/// Piece must be within the extended buffer.
 /// Rows above 0 are the hidden spawn buffer; pieces spawn there.
 fn assert_piece_in_bounds(state: &GameState) {
+    use blocktxt::game::board::{COLS, TOTAL_ROWS};
     if let Some(piece) = &state.active {
         for (col, row) in piece.cells() {
             assert!(
-                (-2..=10).contains(&col),
+                (-2..=(COLS as i32)).contains(&col),
                 "active piece col {col} out of range"
             );
             assert!(
-                (-4..=40).contains(&row),
+                (-4..=(TOTAL_ROWS as i32)).contains(&row),
                 "active piece row {row} out of range"
             );
         }

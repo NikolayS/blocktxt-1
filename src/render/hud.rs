@@ -155,7 +155,7 @@ fn draw_hold(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
         let cell_text: String = if theme.monochrome {
             format!("{}{}", glyph, glyph)
         } else {
-            "██".to_string()
+            crate::render::board_view::FILLED.to_string()
         };
         let cell_style = if theme.monochrome {
             Style::default().fg(Color::Reset)

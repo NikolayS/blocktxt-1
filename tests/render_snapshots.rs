@@ -9,12 +9,20 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use blocktxt::clock::{Clock, FakeClock};
+use blocktxt::game::board::{COLS, TOTAL_ROWS};
 use blocktxt::game::piece::{Piece, PieceKind, Rotation};
 use blocktxt::game::state::GameState;
 use blocktxt::persistence::{HighScore, HighScoreStore};
 use blocktxt::render::theme::Palette;
 use blocktxt::render::{board_view, hud, Theme};
 use blocktxt::Input;
+
+// ── board/view sizing constants (originality-pass dimensions) ─────────────────
+
+/// Board-view width in terminal columns: 12 cells × 2 chars + 2 border = 26.
+const BOARD_W: u16 = 26;
+/// Board-view height in terminal rows: 24 visible rows + 2 border = 26.
+const BOARD_H: u16 = 26;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,7 +58,7 @@ fn snapshot_hud_empty_state() {
     let state = fake_state();
     let theme = Theme::monochrome();
 
-    let backend = TestBackend::new(20, 15);
+    let backend = TestBackend::new(24, 20);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -72,7 +80,7 @@ fn snapshot_hud_paused() {
 
     let theme = Theme::monochrome();
 
-    let backend = TestBackend::new(20, 15);
+    let backend = TestBackend::new(24, 20);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -91,8 +99,7 @@ fn snapshot_board_view_empty() {
     let state = fake_state();
     let theme = Theme::monochrome();
 
-    // 22 wide (board), 22 tall (20 visible + 2 border).
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -121,7 +128,7 @@ fn snapshot_hud_with_score() {
     state.lines_cleared = 40;
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(20, 15);
+    let backend = TestBackend::new(24, 20);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -139,10 +146,10 @@ fn snapshot_board_view_with_active_piece_and_ghost() {
     let clock = Box::new(FakeClock::new(Instant::now()));
     let mut state = GameState::new(42, clock);
 
-    // Fill the bottom 3 rows of the visible area (board rows 37..40)
-    // with O pieces to give the ghost something to land on.
-    for row in 37..40usize {
-        for col in 0..10usize {
+    // Fill the bottom 3 rows of the visible area with O pieces
+    // to give the ghost something to land on.
+    for row in (TOTAL_ROWS - 3)..TOTAL_ROWS {
+        for col in 0..COLS {
             state.board.set(col, row, PieceKind::O);
         }
     }
@@ -151,11 +158,11 @@ fn snapshot_board_view_with_active_piece_and_ghost() {
     state.active = Some(Piece {
         kind: PieceKind::T,
         rotation: Rotation::Zero,
-        origin: (3, 22),
+        origin: (4, 26),
     });
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -178,7 +185,7 @@ fn snapshot_game_over_overlay_regular() {
     state.score = 500;
 
     // Force game-over phase via hard-drops until game ends.
-    for _ in 0..300 {
+    for _ in 0..600 {
         state.step(Duration::ZERO, &[Input::HardDrop]);
         if matches!(state.phase, blocktxt::Phase::GameOver { .. }) {
             break;
@@ -200,7 +207,7 @@ fn snapshot_game_over_overlay_regular() {
     });
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(20, 15);
+    let backend = TestBackend::new(24, 20);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -219,7 +226,7 @@ fn snapshot_game_over_overlay_new_best() {
     let mut state = GameState::new(42, clock);
 
     // Force game-over.
-    for _ in 0..300 {
+    for _ in 0..600 {
         state.step(Duration::ZERO, &[Input::HardDrop]);
         if matches!(state.phase, blocktxt::Phase::GameOver { .. }) {
             break;
@@ -234,7 +241,7 @@ fn snapshot_game_over_overlay_new_best() {
     let store = HighScoreStore::new();
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(22, 15);
+    let backend = TestBackend::new(24, 20);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -256,7 +263,7 @@ fn snapshot_hud_no_color_mode() {
     // Simulate NO_COLOR by passing no_color_flag=true; avoids env mutation.
     let theme = Theme::detect(true, Palette::default());
 
-    let backend = TestBackend::new(20, 15);
+    let backend = TestBackend::new(24, 20);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -269,18 +276,14 @@ fn snapshot_hud_no_color_mode() {
 }
 
 /// Board view with a locked stack at the bottom and no active piece.
-///
-/// Represents the board state just before the game-over overlay appears:
-/// the stack has reached the top of the visible area.
 #[test]
 fn snapshot_board_view_with_locked_stack() {
     let clock = Box::new(FakeClock::new(Instant::now()));
     let mut state = GameState::new(42, clock);
 
-    // Fill the bottom 5 visible rows (board rows 35..40) with locked pieces
-    // using alternating kinds for visual variety.
-    for row in 35..40usize {
-        for col in 0..10usize {
+    // Fill the bottom 5 visible rows with alternating kinds for visual variety.
+    for row in (TOTAL_ROWS - 5)..TOTAL_ROWS {
+        for col in 0..COLS {
             let kind = if col % 2 == 0 {
                 PieceKind::I
             } else {
@@ -294,7 +297,7 @@ fn snapshot_board_view_with_locked_stack() {
     state.active = None;
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -314,14 +317,15 @@ fn snapshot_line_clear_flash_frame() {
     let clock = FakeClock::new(Instant::now());
     let mut state = GameState::new(42, Box::new(clock.clone()));
 
-    // Fill all 10 columns of board row 39 (bottom of visible area).
-    for col in 0..10usize {
-        state.board.set(col, 39, PieceKind::I);
+    // Fill the bottom row (last visible row) completely.
+    let bottom = TOTAL_ROWS - 1;
+    for col in 0..COLS {
+        state.board.set(col, bottom, PieceKind::I);
     }
 
-    // Inject a LineClearAnim in Flash phase (t=0, well within 100ms).
+    // Inject a LineClearAnim in Flash phase (t=0, well within flash window).
     state.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: state.board.clone(),
@@ -331,7 +335,7 @@ fn snapshot_line_clear_flash_frame() {
     });
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -343,6 +347,49 @@ fn snapshot_line_clear_flash_frame() {
     insta::assert_snapshot!("line_clear_flash_frame", buf_to_string(&terminal));
 }
 
+/// Board view captured mid wipe-outward phase — the originality-pass
+/// line-clear animation should show cells near the center "wiped" while the
+/// outer cells are still visible (dimmed).
+#[test]
+fn snapshot_line_clear_wipe_midframe() {
+    use blocktxt::game::state::{ANIM_FLASH_MS, ANIM_WIPE_MS};
+    use blocktxt::{LineClearAnim, LineClearPhase};
+
+    let clock = FakeClock::new(Instant::now());
+    // Anchor the animation's started_at in the past so elapsed at render
+    // time is mid-wipe (flash over + halfway through the wipe window).
+    let anim_started = clock.now() - Duration::from_millis(ANIM_FLASH_MS + ANIM_WIPE_MS / 2);
+
+    let mut state = GameState::new(42, Box::new(clock.clone()));
+
+    let bottom = TOTAL_ROWS - 1;
+    for col in 0..COLS {
+        state.board.set(col, bottom, PieceKind::I);
+    }
+
+    state.line_clear_anim = Some(LineClearAnim {
+        rows: vec![bottom],
+        started_at: anim_started,
+        phase: LineClearPhase::WipeOutward,
+        board_snapshot: state.board.clone(),
+        pending_count: 1,
+        pending_level_before: 1,
+        pending_b2b_active: false,
+    });
+
+    let theme = Theme::monochrome();
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    terminal
+        .draw(|f| {
+            board_view::draw(f, f.area(), &state, &theme);
+        })
+        .unwrap();
+
+    insta::assert_snapshot!("line_clear_wipe_midframe", buf_to_string(&terminal));
+}
+
 /// Board view rendered with Catppuccin Mocha palette via explicit Palette arg.
 ///
 /// Pins the non-default path so a regression in palette routing is caught.
@@ -351,17 +398,15 @@ fn board_view_catppuccin_via_arg() {
     let clock = Box::new(FakeClock::new(std::time::Instant::now()));
     let mut state = GameState::new(42, clock);
 
-    // Fill the bottom 3 rows to give something coloured to render.
-    for row in 37..40usize {
-        for col in 0..10usize {
+    for row in (TOTAL_ROWS - 3)..TOTAL_ROWS {
+        for col in 0..COLS {
             state.board.set(col, row, PieceKind::S);
         }
     }
 
-    // Explicitly select Catppuccin Mocha (non-default palette).
     let theme = Theme::truecolor(Palette::CatppuccinMocha);
 
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -378,8 +423,6 @@ fn board_view_catppuccin_via_arg() {
 /// HUD with a piece in the hold slot (not locked).
 #[test]
 fn snapshot_hud_hold_occupied() {
-    use blocktxt::game::piece::PieceKind;
-
     let clock = Box::new(FakeClock::new(Instant::now()));
     let mut state = GameState::new(42, clock);
     state.step(Duration::ZERO, &[blocktxt::Input::StartGame]);
@@ -389,7 +432,7 @@ fn snapshot_hud_hold_occupied() {
     state.hold_used_this_cycle = false;
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(20, 20);
+    let backend = TestBackend::new(24, 22);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -408,11 +451,10 @@ fn snapshot_hud_hold_empty() {
     let mut state = GameState::new(42, clock);
     state.step(Duration::ZERO, &[blocktxt::Input::StartGame]);
 
-    // Hold slot is empty (default after StartGame).
     assert!(state.hold.is_none());
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(20, 20);
+    let backend = TestBackend::new(24, 22);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -427,8 +469,6 @@ fn snapshot_hud_hold_empty() {
 /// HUD with hold slot occupied AND locked (hold_used_this_cycle=true).
 #[test]
 fn snapshot_hud_hold_locked() {
-    use blocktxt::game::piece::PieceKind;
-
     let clock = Box::new(FakeClock::new(Instant::now()));
     let mut state = GameState::new(42, clock);
     state.step(Duration::ZERO, &[blocktxt::Input::StartGame]);
@@ -438,7 +478,7 @@ fn snapshot_hud_hold_locked() {
     state.hold_used_this_cycle = true;
 
     let theme = Theme::monochrome();
-    let backend = TestBackend::new(20, 20);
+    let backend = TestBackend::new(24, 22);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -458,15 +498,15 @@ fn board_view_gruvbox() {
     let clock = Box::new(FakeClock::new(std::time::Instant::now()));
     let mut state = GameState::new(42, clock);
 
-    for row in 37..40usize {
-        for col in 0..10usize {
+    for row in (TOTAL_ROWS - 3)..TOTAL_ROWS {
+        for col in 0..COLS {
             state.board.set(col, row, PieceKind::S);
         }
     }
 
     let theme = Theme::truecolor(Palette::GruvboxDark);
 
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -484,15 +524,15 @@ fn board_view_nord() {
     let clock = Box::new(FakeClock::new(std::time::Instant::now()));
     let mut state = GameState::new(42, clock);
 
-    for row in 37..40usize {
-        for col in 0..10usize {
+    for row in (TOTAL_ROWS - 3)..TOTAL_ROWS {
+        for col in 0..COLS {
             state.board.set(col, row, PieceKind::S);
         }
     }
 
     let theme = Theme::truecolor(Palette::Nord);
 
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
@@ -510,15 +550,15 @@ fn board_view_dracula() {
     let clock = Box::new(FakeClock::new(std::time::Instant::now()));
     let mut state = GameState::new(42, clock);
 
-    for row in 37..40usize {
-        for col in 0..10usize {
+    for row in (TOTAL_ROWS - 3)..TOTAL_ROWS {
+        for col in 0..COLS {
             state.board.set(col, row, PieceKind::S);
         }
     }
 
     let theme = Theme::truecolor(Palette::Dracula);
 
-    let backend = TestBackend::new(22, 22);
+    let backend = TestBackend::new(BOARD_W, BOARD_H);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal

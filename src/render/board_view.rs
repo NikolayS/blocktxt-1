@@ -1,4 +1,9 @@
-//! Board view: draws the 10×20 visible playfield, active piece, and ghost.
+//! Board view: draws the 12×24 visible playfield, active piece, and ghost.
+//!
+//! Dimensions and cell glyphs are intentionally distinct from the canonical
+//! 10×20 falling-block presentation (see SPEC §1a — originality pass).
+
+use std::time::Duration;
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -6,8 +11,11 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, BorderType, Borders};
 use ratatui::Frame;
 
+use crate::game::board::{BUFFER_ROWS, COLS as BOARD_COLS, VISIBLE_ROWS as BOARD_VISIBLE_ROWS};
 use crate::game::piece::Piece;
-use crate::game::state::{GameState, LineClearPhase, SPAWN_FADE1_MS, SPAWN_FADE_TOTAL_MS};
+use crate::game::state::{
+    GameState, LineClearAnim, ANIM_FLASH_MS, ANIM_WIPE_MS, SPAWN_FADE1_MS, SPAWN_FADE_TOTAL_MS,
+};
 use crate::render::helpers::ghost_y;
 use crate::render::theme::{Theme, BASE, MANTLE, OVERLAY};
 
@@ -17,7 +25,6 @@ use crate::render::theme::{Theme, BASE, MANTLE, OVERLAY};
 /// - 40–80 ms: 0.80 (80 % intensity)
 /// - ≥ 80 ms / no anim: 1.00 (full intensity)
 fn spawn_fade_factor(state: &GameState) -> f32 {
-    use std::time::Duration;
     let Some(ref sa) = state.spawn_anim else {
         return 1.0;
     };
@@ -49,29 +56,66 @@ const CELL_W: u16 = 2;
 /// Height of one cell in terminal rows.
 const CELL_H: u16 = 1;
 
-/// Number of visible rows (rows 20..40 of the 40-row playfield).
-const VISIBLE_ROWS: i32 = 20;
-/// Number of columns.
-const COLS: i32 = 10;
+/// Number of visible rows (24 on the 48-row playfield).
+pub const VISIBLE_ROWS: i32 = BOARD_VISIBLE_ROWS as i32;
+/// Number of columns (12 after originality pass).
+pub const COLS: i32 = BOARD_COLS as i32;
 
-/// Filled-cell glyph pair (two Unicode full-block chars).
-const FILLED: &str = "██";
+/// Filled-cell glyph pair.
+///
+/// `▰` (U+25B0, "Black Parallelogram") is chosen instead of the
+/// canonical `█` full-block so the playfield has a deliberate dingbat
+/// look that does not resemble any specific commercial falling-block
+/// implementation. See SPEC §1a originality note.
+pub const FILLED: &str = "▰▰";
 /// Ghost-cell glyph pair (two light-shade block chars).
-const GHOST: &str = "░░";
+pub const GHOST: &str = "░░";
 /// Empty-cell glyph pair (two spaces).
-const EMPTY: &str = "  ";
+pub const EMPTY: &str = "  ";
+/// Glyph used during the flash phase of the line-clear animation
+/// (`▣` = U+25A3 "White Square Containing Black Small Square").
+pub const FLASH: &str = "▣▣";
 
-/// Draw the visible 10×20 playfield into `area`.
+/// Compute how many cells (measured from the board centerline) have been
+/// wiped at `elapsed` into a wipe-outward animation.
+///
+/// The wipe covers `COLS / 2 + 1` cells over `ANIM_WIPE_MS` milliseconds, so
+/// the full width of the board is cleared when the wipe phase ends.
+pub fn wipe_radius_cells(elapsed_ms: u64) -> u16 {
+    let wipe_ms = ANIM_WIPE_MS.max(1);
+    let full = (BOARD_COLS as u64 / 2) + 1;
+    let clamped = elapsed_ms.min(wipe_ms);
+    ((clamped * full) / wipe_ms) as u16
+}
+
+/// True if cell `col` should be rendered as wiped (collapsed to background).
+///
+/// The center-left cell is at col `COLS/2 - 1`; the center-right at `COLS/2`.
+/// At `radius=0`, nothing is wiped. At `radius=1`, the two center cells are
+/// wiped. At `radius=COLS/2+1`, the entire row is wiped.
+pub fn cell_is_wiped(col: usize, radius: u16) -> bool {
+    if radius == 0 {
+        return false;
+    }
+    let center_left = (BOARD_COLS / 2).saturating_sub(1) as i32;
+    let center_right = (BOARD_COLS / 2) as i32;
+    let col = col as i32;
+    let dist_left = (col - center_left).abs();
+    let dist_right = (col - center_right).abs();
+    let min_dist = dist_left.min(dist_right) as u16;
+    min_dist < radius
+}
+
+/// Draw the visible 12×24 playfield into `area`.
 ///
 /// Renders the board inside a rounded border. Inside:
-///   1. Locked board cells (rows 20..40).
+///   1. Locked board cells (rows BUFFER_ROWS..TOTAL_ROWS).
 ///      During a line-clear animation, full rows are highlighted:
-///      - Flash phase: bright white Rgb(255,255,255) + BOLD (eye-catching pop).
-///      - Dim phase: DIM modifier.
-///   2. Ghost piece (░░, dimmed) at the drop position.
-///   3. Active piece (██) at its current position.
-///
-/// Takes `&GameState` and `&Theme` — no mutation.
+///      - Flash phase: bright white + BOLD using the flash glyph (`▣▣`).
+///      - WipeOutward phase: cells inside the wipe radius (from center) are
+///        cleared to background; cells outside are dimmed.
+///   2. Ghost piece (`░░`, dimmed) at the drop position.
+///   3. Active piece (`▰▰`) at its current position.
 pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
     // Draw the bordered playfield container.
     let board_block = Block::default()
@@ -82,13 +126,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
     let inner = board_block.inner(area);
     frame.render_widget(board_block, area);
 
-    // Build the set of animated row indices (absolute board rows), if any.
-    let anim_rows: Option<(&[usize], &LineClearPhase)> = state
+    // Animation context: rows being animated + wipe radius given the clock.
+    let anim: Option<AnimCtx> = state
         .line_clear_anim
         .as_ref()
-        .map(|a| (a.rows.as_slice(), &a.phase));
+        .map(|a| make_anim_ctx(a, state));
 
-    // 1. Draw background dots / empty cells.
+    // 1. Draw background / empty cells.
     for vis_row in 0..VISIBLE_ROWS {
         for col in 0..COLS {
             let x = inner.x + (col as u16) * CELL_W;
@@ -105,29 +149,9 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
         }
     }
 
-    // 2. Locked board cells (rows 20..40).
+    // 2. Locked board cells (rows BUFFER_ROWS..BUFFER_ROWS+VISIBLE_ROWS).
     for vis_row in 0..VISIBLE_ROWS {
-        let board_row = (vis_row + 20) as usize;
-
-        // Determine if this row is being animated.
-        // Flash pop: full-intensity bright white with BOLD (eye-catching pop).
-        // Dim: subdued overlay so the eye is drawn back to the board.
-        let anim_style: Option<Style> = anim_rows.and_then(|(rows, phase)| {
-            if rows.contains(&board_row) {
-                Some(match phase {
-                    LineClearPhase::Flash => Style::default()
-                        .fg(Color::Rgb(255, 255, 255))
-                        .bg(Color::Rgb(255, 255, 255))
-                        .add_modifier(Modifier::BOLD),
-                    LineClearPhase::Dim => Style::default()
-                        .fg(OVERLAY)
-                        .bg(MANTLE)
-                        .add_modifier(Modifier::DIM),
-                })
-            } else {
-                None
-            }
-        });
+        let board_row = (vis_row as usize) + BUFFER_ROWS;
 
         for col in 0..COLS {
             if let Some(kind) = state.board.cell_kind(col as usize, board_row) {
@@ -138,23 +162,25 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
                 };
                 let x = inner.x + (col as u16) * CELL_W;
                 let y = inner.y + vis_row as u16 * CELL_H;
-                if x + CELL_W <= inner.x + inner.width && y < inner.y + inner.height {
-                    let (text, style) = if let Some(anim) = anim_style {
-                        // Filled block during animation regardless of glyph.
-                        (FILLED, anim)
-                    } else {
-                        let cell_style = if theme.monochrome {
-                            Style::default().fg(base_color)
-                        } else {
-                            Style::default().fg(base_color).bg(BASE)
-                        };
-                        (FILLED, cell_style)
-                    };
-                    frame.render_widget(
-                        ratatui::widgets::Paragraph::new(Span::styled(text, style)),
-                        Rect::new(x, y, CELL_W, CELL_H),
-                    );
+                if x + CELL_W > inner.x + inner.width || y >= inner.y + inner.height {
+                    continue;
                 }
+
+                // Determine rendering mode for this cell given anim state.
+                let (text, style) = if let Some(ref ctx) = anim {
+                    if ctx.rows.contains(&board_row) {
+                        render_anim_cell(ctx, col as usize, base_color, theme.monochrome)
+                    } else {
+                        default_cell_style(base_color, theme.monochrome)
+                    }
+                } else {
+                    default_cell_style(base_color, theme.monochrome)
+                };
+
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(Span::styled(text, style)),
+                    Rect::new(x, y, CELL_W, CELL_H),
+                );
             }
         }
     }
@@ -175,9 +201,79 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
     }
 }
 
+/// Per-frame animation context for the line-clear overlay.
+struct AnimCtx<'a> {
+    rows: &'a [usize],
+    in_flash: bool,
+    wipe_radius: u16,
+}
+
+fn make_anim_ctx<'a>(a: &'a LineClearAnim, state: &GameState) -> AnimCtx<'a> {
+    let elapsed = state
+        .now()
+        .saturating_duration_since(a.started_at)
+        .as_millis() as u64;
+    let in_flash = elapsed < ANIM_FLASH_MS;
+    let wipe_ms = elapsed.saturating_sub(ANIM_FLASH_MS);
+    AnimCtx {
+        rows: a.rows.as_slice(),
+        in_flash,
+        wipe_radius: if in_flash {
+            0
+        } else {
+            wipe_radius_cells(wipe_ms)
+        },
+    }
+}
+
+fn render_anim_cell(
+    ctx: &AnimCtx,
+    col: usize,
+    base_color: Color,
+    monochrome: bool,
+) -> (&'static str, Style) {
+    if ctx.in_flash {
+        return (
+            FLASH,
+            Style::default()
+                .fg(Color::Rgb(255, 255, 255))
+                .bg(Color::Rgb(255, 255, 255))
+                .add_modifier(Modifier::BOLD),
+        );
+    }
+
+    if cell_is_wiped(col, ctx.wipe_radius) {
+        // Fully wiped — collapse to the empty background tile so the cell
+        // appears to have "dissolved" from the center outward.
+        return (EMPTY, Style::default().bg(MANTLE));
+    }
+
+    // Cell still visible but dimmed while the wipe travels outward.
+    let style = if monochrome {
+        Style::default()
+            .fg(Color::Reset)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default()
+            .fg(base_color)
+            .bg(BASE)
+            .add_modifier(Modifier::DIM)
+    };
+    (FILLED, style)
+}
+
+fn default_cell_style(base_color: Color, monochrome: bool) -> (&'static str, Style) {
+    let style = if monochrome {
+        Style::default().fg(base_color)
+    } else {
+        Style::default().fg(base_color).bg(BASE)
+    };
+    (FILLED, style)
+}
+
 /// Draw one piece onto the frame area.
 ///
-/// `is_ghost` renders ░░ in the ghost-surface color.
+/// `is_ghost` renders `░░` in the ghost-surface color.
 /// `fade` is a [0.0, 1.0] intensity multiplier for the spawn-fade animation;
 /// use 1.0 for full intensity (non-fading pieces and ghosts).
 fn render_piece(
@@ -195,7 +291,7 @@ fn render_piece(
     };
 
     for (col, row) in piece.cells() {
-        let vis_row = row - 20;
+        let vis_row = row - BUFFER_ROWS as i32;
         if !(0..VISIBLE_ROWS).contains(&vis_row) || !(0..COLS).contains(&col) {
             continue;
         }
@@ -219,12 +315,14 @@ fn render_piece(
                 Rect::new(x, y, CELL_W, CELL_H),
             );
         } else {
-            let glyph = if theme.monochrome {
-                theme.glyph(piece.kind)
+            // Use the thematic filled glyph for color modes; monochrome
+            // reuses the per-kind letter so pieces stay distinguishable.
+            let s_owned: String = if theme.monochrome {
+                let glyph = theme.glyph(piece.kind);
+                glyph.to_string().repeat(CELL_W as usize)
             } else {
-                '█'
+                FILLED.to_string()
             };
-            let s_owned: String = glyph.to_string().repeat(CELL_W as usize);
             let style = if theme.monochrome {
                 Style::default().fg(Color::Reset)
             } else {

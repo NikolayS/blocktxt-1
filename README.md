@@ -137,4 +137,13 @@ Guideline-style scoring used in this game are derived independently
 from their public mathematical specifications. Piece names
 (I, O, T, S, Z, J, L) refer to their shapes.
 
+### Originality
+
+This game uses an original 12×24 playfield (not 10×20), an arbitrary
+non-Guideline piece-color assignment, distinct cell glyphs, and a
+wipe-from-center line-clear animation — all chosen to be visibly
+distinct from any specific commercial implementation while remaining
+faithful to the public mathematical specifications (SRS, 7-bag,
+Guideline scoring formula).
+
 License: Apache-2.0.

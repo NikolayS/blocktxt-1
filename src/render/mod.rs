@@ -3,10 +3,10 @@
 //! `render::render(frame, &state, &theme)` is the single public drawing
 //! entry point. It splits the terminal area into:
 //!
-//!   - Playfield: 22 chars wide (10 board cols × 2 char each + 2 border).
+//!   - Playfield: 26 chars wide (12 board cols × 2 char each + 2 border).
 //!   - HUD: 24 chars wide (stats + next-piece preview).
 //!
-//! The composition (46 chars total) is centered horizontally when the
+//! The composition (50 chars total) is centered horizontally when the
 //! terminal is wider than needed.
 //!
 //! The renderer only reads `&GameState` and never mutates game state.
@@ -29,8 +29,8 @@ pub use theme::Theme;
 
 use theme::{BASE, OVERLAY, SUBTEXT, TEXT};
 
-/// Playfield width: 10 cells × 2 chars + 2 border = 22 chars.
-const PLAYFIELD_W: u16 = 22;
+/// Playfield width: 12 cells × 2 chars + 2 border = 26 chars.
+const PLAYFIELD_W: u16 = 26;
 /// HUD width: 24 chars (enough for stats + piece shapes).
 const HUD_W: u16 = 24;
 /// Total composition width.
@@ -38,11 +38,13 @@ const COMPOSITION_W: u16 = PLAYFIELD_W + HUD_W;
 
 /// Minimum terminal width required to display the game.
 ///
-/// Composition (46) + 6 chars margin = 52.
+/// Composition (50) + 2 chars margin = 52.
 pub const MIN_WIDTH: u16 = 52;
 
 /// Minimum terminal height required to display the game.
-pub const MIN_HEIGHT: u16 = 24;
+///
+/// 24 visible rows + 2 border + 2 margin = 28.
+pub const MIN_HEIGHT: u16 = 28;
 
 /// Draw one full frame: board + HUD.
 ///

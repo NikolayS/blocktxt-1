@@ -5,10 +5,10 @@
 use std::time::{Duration, Instant};
 
 use blocktxt::clock::{Clock, FakeClock};
-use blocktxt::game::board::Board;
+use blocktxt::game::board::{Board, COLS, TOTAL_ROWS};
 use blocktxt::game::piece::PieceKind;
 use blocktxt::game::state::{
-    GameState, Input, LineClearAnim, LineClearPhase, ANIM_DIM_MS, ANIM_FLASH_MS, ANIM_TOTAL_MS,
+    GameState, Input, LineClearAnim, LineClearPhase, ANIM_FLASH_MS, ANIM_TOTAL_MS, ANIM_WIPE_MS,
 };
 use blocktxt::Event;
 
@@ -23,9 +23,9 @@ fn make_game(seed: u64) -> (GameState, FakeClock) {
     (gs, clock)
 }
 
-/// Fill all 10 columns of `row` (absolute board row) with O pieces.
+/// Fill all columns of `row` (absolute board row) with O pieces.
 fn fill_row(board: &mut Board, row: usize) {
-    for col in 0..10usize {
+    for col in 0..COLS {
         board.set(col, row, PieceKind::O);
     }
 }
@@ -34,25 +34,23 @@ fn fill_row(board: &mut Board, row: usize) {
 
 #[test]
 fn anim_constants_match_spec() {
-    assert_eq!(ANIM_FLASH_MS, 100, "flash phase must be 100 ms");
-    assert_eq!(ANIM_DIM_MS, 100, "dim phase must be 100 ms");
-    assert_eq!(
-        ANIM_TOTAL_MS, 200,
-        "total animation budget must be ≤ 200 ms"
-    );
+    assert_eq!(ANIM_FLASH_MS, 50, "flash phase must be 50 ms");
+    assert_eq!(ANIM_WIPE_MS, 200, "wipe phase must be 200 ms");
+    assert_eq!(ANIM_TOTAL_MS, 250, "total animation budget must be 250 ms");
 }
 
 // ── phase machine via FakeClock ───────────────────────────────────────────────
 
-/// Injecting a LineClearAnim in Flash phase and advancing 50 ms leaves it
-/// in Flash (< 100 ms threshold).
+/// Injecting a LineClearAnim in Flash phase and advancing 20 ms leaves it
+/// in Flash (< 50 ms threshold).
 #[test]
-fn anim_stays_flash_before_100ms() {
+fn anim_stays_flash_before_flash_boundary() {
     let (mut gs, clock) = make_game(42);
 
-    fill_row(&mut gs.board, 39);
+    let bottom = TOTAL_ROWS - 1;
+    fill_row(&mut gs.board, bottom);
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -61,9 +59,9 @@ fn anim_stays_flash_before_100ms() {
         pending_b2b_active: false,
     });
 
-    // Advance 50 ms — still in flash.
-    clock.advance(Duration::from_millis(50));
-    gs.step(Duration::from_millis(50), &[]);
+    // Advance 20 ms — still in flash.
+    clock.advance(Duration::from_millis(20));
+    gs.step(Duration::from_millis(20), &[]);
 
     let phase = gs
         .line_clear_anim
@@ -74,14 +72,15 @@ fn anim_stays_flash_before_100ms() {
     assert_eq!(phase, LineClearPhase::Flash);
 }
 
-/// Advancing exactly 100 ms transitions from Flash → Dim.
+/// Advancing past the flash boundary transitions Flash → WipeOutward.
 #[test]
-fn anim_transitions_to_dim_at_100ms() {
+fn anim_transitions_to_wipe_at_flash_boundary() {
     let (mut gs, clock) = make_game(42);
 
-    fill_row(&mut gs.board, 39);
+    let bottom = TOTAL_ROWS - 1;
+    fill_row(&mut gs.board, bottom);
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -90,31 +89,31 @@ fn anim_transitions_to_dim_at_100ms() {
         pending_b2b_active: false,
     });
 
-    // Advance exactly 100 ms — crosses into dim.
-    clock.advance(Duration::from_millis(100));
-    gs.step(Duration::from_millis(100), &[]);
+    // Advance past the flash boundary — should flip to WipeOutward.
+    clock.advance(Duration::from_millis(ANIM_FLASH_MS));
+    gs.step(Duration::from_millis(ANIM_FLASH_MS), &[]);
 
     let phase = gs
         .line_clear_anim
         .as_ref()
-        .expect("animation should still be active at 100 ms")
+        .expect("animation should still be active after flash phase")
         .phase
         .clone();
-    assert_eq!(phase, LineClearPhase::Dim);
+    assert_eq!(phase, LineClearPhase::WipeOutward);
 }
 
-/// Advancing 200 ms completes the animation: `line_clear_anim` becomes `None`,
-/// the board row is cleared, and `LinesCleared` event is emitted.
+/// Advancing the full animation budget completes the animation: the board
+/// row is cleared, and a `LinesCleared` event is emitted.
 #[test]
-fn anim_finishes_at_200ms_and_clears_board() {
+fn anim_finishes_and_clears_board() {
     let (mut gs, clock) = make_game(42);
 
-    // Fill bottom row with pieces to create a clearable line.
-    fill_row(&mut gs.board, 39);
+    let bottom = TOTAL_ROWS - 1;
+    fill_row(&mut gs.board, bottom);
     let board_snap = gs.board.clone();
 
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: board_snap,
@@ -123,13 +122,12 @@ fn anim_finishes_at_200ms_and_clears_board() {
         pending_b2b_active: false,
     });
 
-    // Advance 200 ms — animation should complete.
-    clock.advance(Duration::from_millis(200));
-    let events = gs.step(Duration::from_millis(200), &[]);
+    clock.advance(Duration::from_millis(ANIM_TOTAL_MS));
+    let events = gs.step(Duration::from_millis(ANIM_TOTAL_MS), &[]);
 
     assert!(
         gs.line_clear_anim.is_none(),
-        "animation must be cleared after 200 ms"
+        "animation must be cleared after total budget"
     );
     assert!(
         events
@@ -137,25 +135,25 @@ fn anim_finishes_at_200ms_and_clears_board() {
             .any(|e| matches!(e, Event::LinesCleared { count: 1, .. })),
         "LinesCleared(1) event must be emitted on animation finish"
     );
-    // Row 39 should now be empty.
     assert!(
-        (0..10).all(|c| gs.board.cell_kind(c, 39).is_none()),
+        (0..COLS).all(|c| gs.board.cell_kind(c, bottom).is_none()),
         "cleared row must be empty after animation"
     );
 }
 
-/// During the animation (< 200 ms), gravity/lock are suspended and no
-/// new piece is spawned prematurely.
+/// During the animation (< total), gravity/lock are suspended and no new
+/// piece is spawned prematurely.
 #[test]
 fn anim_suspends_gravity_during_play() {
     let (mut gs, clock) = make_game(42);
 
-    fill_row(&mut gs.board, 39);
+    let bottom = TOTAL_ROWS - 1;
+    fill_row(&mut gs.board, bottom);
     // Remove active piece so we can test board-only state cleanly.
     gs.active = None;
 
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -164,16 +162,16 @@ fn anim_suspends_gravity_during_play() {
         pending_b2b_active: false,
     });
 
-    // 150 ms — into dim but not finished.
-    clock.advance(Duration::from_millis(150));
-    gs.step(Duration::from_millis(150), &[]);
+    // Advance mid-wipe but before completion.
+    let midway = Duration::from_millis(ANIM_FLASH_MS + ANIM_WIPE_MS / 2);
+    clock.advance(midway);
+    gs.step(midway, &[]);
 
-    // Row 39 must still be full (board not yet cleared).
+    // Bottom row must still be full (board not yet cleared).
     assert!(
-        (0..10usize).all(|c| gs.board.cell_kind(c, 39).is_some()),
+        (0..COLS).all(|c| gs.board.cell_kind(c, bottom).is_some()),
         "row must remain intact while animating"
     );
-    // Animation still live.
     assert!(gs.line_clear_anim.is_some());
 }
 
@@ -182,9 +180,10 @@ fn anim_suspends_gravity_during_play() {
 fn anim_accepts_inputs_without_blocking() {
     let (mut gs, clock) = make_game(42);
 
-    fill_row(&mut gs.board, 39);
+    let bottom = TOTAL_ROWS - 1;
+    fill_row(&mut gs.board, bottom);
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![bottom],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -194,12 +193,11 @@ fn anim_accepts_inputs_without_blocking() {
     });
 
     // Should not panic or deadlock even with movement inputs mid-animation.
-    clock.advance(Duration::from_millis(50));
+    clock.advance(Duration::from_millis(20));
     gs.step(
-        Duration::from_millis(50),
+        Duration::from_millis(20),
         &[Input::MoveLeft, Input::RotateCw],
     );
-    // No assertion needed beyond "didn't panic".
     assert!(gs.line_clear_anim.is_some());
 }
 

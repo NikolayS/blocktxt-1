@@ -1,7 +1,8 @@
 //! Tests for `render::theme` — color/glyph detection.
 
 use blocktxt::render::theme::{
-    Palette, Theme, CM_I, CM_J, CM_L, CM_O, CM_S, CM_T, DR_I, DR_Z, GV_I, GV_Z, NO_I, NO_Z, TN_I,
+    Palette, Theme, CM_I, CM_J, CM_L, CM_O, CM_S, CM_T, CM_Z, DR_I, DR_J, DR_L, DR_O, DR_S, DR_T,
+    DR_Z, GV_I, GV_J, GV_L, GV_O, GV_S, GV_T, GV_Z, NO_I, NO_J, NO_L, NO_O, NO_S, NO_T, NO_Z, TN_I,
     TN_J, TN_L, TN_O, TN_S, TN_T, TN_Z,
 };
 use ratatui::style::Color;
@@ -93,9 +94,24 @@ fn theme_tokyo_night_colors_match_spec() {
     std::env::remove_var("COLORTERM");
 
     use blocktxt::game::piece::PieceKind;
-    assert_eq!(theme.color(PieceKind::I), TN_I, "I piece should be TN cyan");
-    assert_eq!(theme.color(PieceKind::O), TN_O, "O piece should be TN gold");
-    assert_eq!(theme.color(PieceKind::Z), TN_Z, "Z piece should be TN red");
+    // Originality-pass piece→slot mapping (SPEC §1a):
+    //   I → Orange(TN_L), O → Pink(TN_Z), T → Green(TN_S), S → Blue(TN_J),
+    //   Z → Yellow(TN_O), J → Purple(TN_T), L → Cyan(TN_I).
+    assert_eq!(
+        theme.color(PieceKind::I),
+        TN_L,
+        "I piece should adopt the orange slot (was cyan)"
+    );
+    assert_eq!(
+        theme.color(PieceKind::O),
+        TN_Z,
+        "O piece should adopt the pink slot (was gold)"
+    );
+    assert_eq!(
+        theme.color(PieceKind::Z),
+        TN_O,
+        "Z piece should adopt the yellow slot (was red)"
+    );
     // Spot-check background colors.
     assert_eq!(theme.base, Color::Rgb(26, 27, 38), "base should be #1a1b26");
 }
@@ -109,16 +125,21 @@ fn theme_catppuccin_still_works() {
     std::env::remove_var("COLORTERM");
 
     use blocktxt::game::piece::PieceKind;
-    assert_eq!(theme.color(PieceKind::I), CM_I, "I piece should be CM sky");
+    // I → Orange(CM_L peach), O → Pink(CM_Z), T → Green(CM_S).
+    assert_eq!(
+        theme.color(PieceKind::I),
+        CM_L,
+        "I piece should adopt the orange/peach slot"
+    );
     assert_eq!(
         theme.color(PieceKind::O),
-        CM_O,
-        "O piece should be CM yellow"
+        CM_Z,
+        "O piece should adopt the pink slot"
     );
     assert_eq!(
         theme.color(PieceKind::T),
-        CM_T,
-        "T piece should be CM mauve"
+        CM_S,
+        "T piece should adopt the green slot"
     );
 }
 
@@ -235,6 +256,49 @@ fn palette_invalid_lists_all_five() {
     }
 }
 
+// ── Originality-pass piece→color mapping consistency ─────────────────────────
+
+/// Slot tuple: `(cyan, orange, yellow, pink, green, blue, purple)`.
+type PaletteSlots = (Color, Color, Color, Color, Color, Color, Color);
+
+/// The piece→slot permutation (SPEC §1a) must be applied identically in
+/// every palette. For each kind, verify that the color the theme returns
+/// is the palette's slot color for that kind.
+#[test]
+fn piece_color_mapping_consistent_across_palettes() {
+    use blocktxt::game::piece::PieceKind;
+
+    // Expected mapping: (piece, expected_slot)
+    //   I → Orange, O → Pink, T → Green, S → Blue, Z → Yellow, J → Purple, L → Cyan
+    let palettes: &[(Palette, PaletteSlots)] = &[
+        (
+            Palette::TokyoNight,
+            (TN_I, TN_L, TN_O, TN_Z, TN_S, TN_J, TN_T),
+        ),
+        (
+            Palette::CatppuccinMocha,
+            (CM_I, CM_L, CM_O, CM_Z, CM_S, CM_J, CM_T),
+        ),
+        (
+            Palette::GruvboxDark,
+            (GV_I, GV_L, GV_O, GV_Z, GV_S, GV_J, GV_T),
+        ),
+        (Palette::Nord, (NO_I, NO_L, NO_O, NO_Z, NO_S, NO_J, NO_T)),
+        (Palette::Dracula, (DR_I, DR_L, DR_O, DR_Z, DR_S, DR_J, DR_T)),
+    ];
+
+    for (palette, (cy, or, ye, pi, gr, bl, pu)) in palettes {
+        let theme = Theme::truecolor(*palette);
+        assert_eq!(theme.color(PieceKind::I), *or, "{palette:?}: I → orange");
+        assert_eq!(theme.color(PieceKind::O), *pi, "{palette:?}: O → pink");
+        assert_eq!(theme.color(PieceKind::T), *gr, "{palette:?}: T → green");
+        assert_eq!(theme.color(PieceKind::S), *bl, "{palette:?}: S → blue");
+        assert_eq!(theme.color(PieceKind::Z), *ye, "{palette:?}: Z → yellow");
+        assert_eq!(theme.color(PieceKind::J), *pu, "{palette:?}: J → purple");
+        assert_eq!(theme.color(PieceKind::L), *cy, "{palette:?}: L → cyan");
+    }
+}
+
 // Keep these imports used (suppress unused-import lint).
 const _: Color = TN_J;
 const _: Color = TN_L;
@@ -243,3 +307,7 @@ const _: Color = TN_T;
 const _: Color = CM_J;
 const _: Color = CM_L;
 const _: Color = CM_S;
+// Extra keep-alive references used by palette consistency test imports.
+const _: Color = GV_Z;
+const _: Color = NO_Z;
+const _: Color = DR_Z;

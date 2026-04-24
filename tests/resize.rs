@@ -98,8 +98,8 @@ fn snapshot_normal_size() {
     let state = fake_state();
     let theme = Theme::monochrome();
 
-    // Normal terminal: 80×24.
-    let backend = TestBackend::new(80, 24);
+    // Normal terminal: 80×32 (comfortably above the 52×28 minimum).
+    let backend = TestBackend::new(80, 32);
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal

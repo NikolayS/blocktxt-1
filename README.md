@@ -140,8 +140,12 @@ from their public mathematical specifications. Piece names
 ### Originality
 
 This game uses an original 12×24 playfield (not 10×20), an arbitrary
-non-Guideline piece-color assignment, distinct cell glyphs, and a
-wipe-from-center line-clear animation — all chosen to be visibly
+non-Guideline piece-color assignment, distinct cell glyphs, a
+wipe-from-center line-clear animation, a single-letter next-piece
+preview (not a multi-piece mini-board queue), a floor-line landing
+indicator (not a piece-shaped ghost outline), and locked cells
+rendered ~40% dimmer than the active piece (not the canonical
+"locked stays full color" convention) — all chosen to be visibly
 distinct from any specific commercial implementation while remaining
 faithful to the public mathematical specifications (SRS, 7-bag,
 Guideline scoring formula).

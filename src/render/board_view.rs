@@ -40,7 +40,7 @@ fn spawn_fade_factor(state: &GameState) -> f32 {
 }
 
 /// Dim an RGB color by `factor` (0.0–1.0) by scaling each channel.
-fn dim_color(c: Color, factor: f32) -> Color {
+pub fn dim_color(c: Color, factor: f32) -> Color {
     match c {
         Color::Rgb(r, g, b) => Color::Rgb(
             (r as f32 * factor) as u8,
@@ -50,6 +50,13 @@ fn dim_color(c: Color, factor: f32) -> Color {
         other => other, // non-RGB colors pass through unchanged
     }
 }
+
+/// Intensity multiplier applied to locked cells (originality pass).
+///
+/// Canonical falling-block presentations render locked cells in the same
+/// color as the active piece. We dim them to 60 % so the falling piece
+/// visibly pops above the settled stack. See SPEC §1a.
+pub const LOCKED_CELL_DIM: f32 = 0.6;
 
 /// Width of one cell in terminal columns (each cell is 2 chars wide).
 const CELL_W: u16 = 2;
@@ -68,8 +75,18 @@ pub const COLS: i32 = BOARD_COLS as i32;
 /// look that does not resemble any specific commercial falling-block
 /// implementation. See SPEC §1a originality note.
 pub const FILLED: &str = "▰▰";
-/// Ghost-cell glyph pair (two light-shade block chars).
+/// Legacy ghost-cell glyph (piece-shaped overlay); retained for tests that
+/// want to confirm it is no longer rendered on the board.
+#[allow(dead_code)]
 pub const GHOST: &str = "░░";
+/// Floor-line ghost glyph pair.
+///
+/// Instead of previewing the landing position as a piece-shaped outline
+/// (which matches the canonical falling-block ghost), we draw a single
+/// horizontal line spanning the columns the piece will occupy at the row
+/// where its bottom would rest. `▔` (U+2594 "Upper One Eighth Block")
+/// reads as a crisp floor marker without intruding into the cell above.
+pub const GHOST_LINE: &str = "▔▔";
 /// Empty-cell glyph pair (two spaces).
 pub const EMPTY: &str = "  ";
 /// Glyph used during the flash phase of the line-clear animation
@@ -150,6 +167,11 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
     }
 
     // 2. Locked board cells (rows BUFFER_ROWS..BUFFER_ROWS+VISIBLE_ROWS).
+    //
+    // Locked cells render DIMMER than the active piece (LOCKED_CELL_DIM).
+    // This is an explicit deviation from the canonical convention where a
+    // locked cell keeps the same color as its active-piece state — see
+    // SPEC §1a.
     for vis_row in 0..VISIBLE_ROWS {
         let board_row = (vis_row as usize) + BUFFER_ROWS;
 
@@ -158,7 +180,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
                 let base_color = if theme.monochrome {
                     Color::Reset
                 } else {
-                    theme.color(kind)
+                    dim_color(theme.color(kind), LOCKED_CELL_DIM)
                 };
                 let x = inner.x + (col as u16) * CELL_W;
                 let y = inner.y + vis_row as u16 * CELL_H;
@@ -185,19 +207,85 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
         }
     }
 
-    // 3. Ghost piece then active piece (skip during animation — no active piece).
+    // 3. Ghost (floor line) then active piece (skip during animation).
     if let Some(active) = &state.active {
         let ghost_row = ghost_y(&state.board, active);
-        // Only draw ghost if it differs from the active position.
-        if ghost_row != active.origin.1 {
-            let ghost = Piece {
-                origin: (active.origin.0, ghost_row),
-                ..*active
-            };
-            render_piece(frame, inner, &ghost, theme, true, 1.0);
+        // Only draw the floor-line when the ghost is below the piece body;
+        // when ghost_row == active origin the piece is already on the floor
+        // (or flush against a stack) and a duplicate line underneath would
+        // either render under the piece or outside the playfield.
+        if ghost_row > active.origin.1 {
+            render_ghost_floor_line(frame, inner, active, ghost_row, theme);
         }
         let fade = spawn_fade_factor(state);
-        render_piece(frame, inner, active, theme, false, fade);
+        render_piece(frame, inner, active, theme, fade);
+    }
+}
+
+/// Draw the originality-pass ghost: a single horizontal floor line spanning
+/// the columns the piece would occupy at the row where its bottom rests.
+///
+/// Renders at the row of the piece's lowest occupied cell (not one below),
+/// using `▔▔` which sits at the TOP of the cell — so it reads as a line
+/// directly under the active piece without overlapping it.
+fn render_ghost_floor_line(
+    frame: &mut Frame,
+    area: Rect,
+    active: &Piece,
+    ghost_origin_row: i32,
+    theme: &Theme,
+) {
+    let ghost_piece = Piece {
+        origin: (active.origin.0, ghost_origin_row),
+        ..*active
+    };
+
+    // Collect the (col, row) pairs the piece would occupy at rest.
+    let cells = ghost_piece.cells();
+
+    // For each column the ghost body touches, find the LOWEST row. That's
+    // the row whose top edge we'll paint with the floor line — giving one
+    // line segment per distinct column, aligned to the actual landing row.
+    let mut lowest_by_col: std::collections::BTreeMap<i32, i32> = Default::default();
+    for &(c, r) in &cells {
+        lowest_by_col
+            .entry(c)
+            .and_modify(|cur| {
+                if r > *cur {
+                    *cur = r;
+                }
+            })
+            .or_insert(r);
+    }
+
+    let color = if theme.monochrome {
+        Color::Reset
+    } else {
+        dim_color(theme.color(active.kind), 0.4)
+    };
+    let style = if theme.monochrome {
+        Style::default()
+            .fg(Color::Reset)
+            .bg(MANTLE)
+            .add_modifier(Modifier::DIM)
+    } else {
+        Style::default().fg(color).bg(MANTLE)
+    };
+
+    for (col, row) in lowest_by_col {
+        let vis_row = row - BUFFER_ROWS as i32;
+        if !(0..VISIBLE_ROWS).contains(&vis_row) || !(0..COLS).contains(&col) {
+            continue;
+        }
+        let x = area.x + (col as u16) * CELL_W;
+        let y = area.y + vis_row as u16 * CELL_H;
+        if x + CELL_W > area.x + area.width || y >= area.y + area.height {
+            continue;
+        }
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(Span::styled(GHOST_LINE, style)),
+            Rect::new(x, y, CELL_W, CELL_H),
+        );
     }
 }
 
@@ -271,19 +359,11 @@ fn default_cell_style(base_color: Color, monochrome: bool) -> (&'static str, Sty
     (FILLED, style)
 }
 
-/// Draw one piece onto the frame area.
+/// Draw the active piece onto the frame area.
 ///
-/// `is_ghost` renders `░░` in the ghost-surface color.
 /// `fade` is a [0.0, 1.0] intensity multiplier for the spawn-fade animation;
-/// use 1.0 for full intensity (non-fading pieces and ghosts).
-fn render_piece(
-    frame: &mut Frame,
-    area: Rect,
-    piece: &Piece,
-    theme: &Theme,
-    is_ghost: bool,
-    fade: f32,
-) {
+/// use 1.0 for full intensity outside the fade-in window.
+fn render_piece(frame: &mut Frame, area: Rect, piece: &Piece, theme: &Theme, fade: f32) {
     let color = if theme.monochrome {
         Color::Reset
     } else {
@@ -301,37 +381,22 @@ fn render_piece(
             continue;
         }
 
-        if is_ghost {
-            use crate::render::theme::GHOST_MOD;
-            let style = if theme.monochrome {
-                Style::default()
-                    .fg(Color::Reset)
-                    .add_modifier(Modifier::DIM)
-            } else {
-                Style::default().fg(GHOST_MOD).bg(BASE)
-            };
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(Span::styled(GHOST, style)),
-                Rect::new(x, y, CELL_W, CELL_H),
-            );
+        // Use the thematic filled glyph for color modes; monochrome reuses
+        // the per-kind letter so pieces stay distinguishable without color.
+        let s_owned: String = if theme.monochrome {
+            let glyph = theme.glyph(piece.kind);
+            glyph.to_string().repeat(CELL_W as usize)
         } else {
-            // Use the thematic filled glyph for color modes; monochrome
-            // reuses the per-kind letter so pieces stay distinguishable.
-            let s_owned: String = if theme.monochrome {
-                let glyph = theme.glyph(piece.kind);
-                glyph.to_string().repeat(CELL_W as usize)
-            } else {
-                FILLED.to_string()
-            };
-            let style = if theme.monochrome {
-                Style::default().fg(Color::Reset)
-            } else {
-                Style::default().fg(color).bg(BASE)
-            };
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(Span::styled(s_owned, style)),
-                Rect::new(x, y, CELL_W, CELL_H),
-            );
-        }
+            FILLED.to_string()
+        };
+        let style = if theme.monochrome {
+            Style::default().fg(Color::Reset)
+        } else {
+            Style::default().fg(color).bg(BASE)
+        };
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(Span::styled(s_owned, style)),
+            Rect::new(x, y, CELL_W, CELL_H),
+        );
     }
 }

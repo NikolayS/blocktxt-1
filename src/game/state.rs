@@ -324,6 +324,16 @@ impl GameState {
         self.clock.now()
     }
 
+    /// Peek the single piece kind that will spawn next.
+    ///
+    /// Returns `None` when the queue is empty (Title phase, pre-StartGame).
+    /// The originality-pass HUD surfaces only one lookahead — see SPEC §1a
+    /// for rationale — so this is the sole preview accessor the renderer
+    /// should use.
+    pub fn peek_next_kind(&self) -> Option<PieceKind> {
+        self.next_queue.front().copied()
+    }
+
     /// Create a new game seeded with `seed`.
     ///
     /// The clock is used to initialise the starting `Instant`; all timing

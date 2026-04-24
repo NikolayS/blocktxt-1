@@ -15,12 +15,12 @@ expression: buf_to_string(&terminal)
 │                      │
 ╰──────────────────────╯
 ╭ next ────────────────╮
-│    LL                │
-│LLLLLL                │
+│           L          │
 │                      │
-│  SSSS                │
-│SSSS                  │
 │                      │
-│  TT                  │
-│TTTTTT                │
+│                      │
+│                      │
+│                      │
+│                      │
+│                      │
 ╰──────────────────────╯

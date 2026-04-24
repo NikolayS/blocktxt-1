@@ -19,4 +19,4 @@
 
 ## Next action
 
-`samospec resume multiplayer-v1`
+`samospec iterate multiplayer-v1`

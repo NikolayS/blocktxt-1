@@ -2,40 +2,38 @@
 
 ## summary
 
-The spec covers all nine mandatory baseline sections and is strong on scope discipline, topology rationale, and sprint parallelisation. The most serious gaps are: (1) the §4 architecture placeholder contradicts the populated §4.1–4.3; (2) the Sprint-1 feature-flag rule contradicts Sprint 2 shipping `mp local`; (3) garbage-exchange prose (§5.3) does not match the B2B ×1.5 table referenced by its test (§6.1); (4) RTT-vs-one-way conflated in §2.5; (5) heartbeat uses `Pong` with no `Ping` frame defined. Multiple enums (Goodbye/Error reasons), the fixed-point arithmetic scheme, sudden-death rules, and garbage queue-overflow behaviour are referenced but never specified. Testing is weak on the load-bearing claims: bandwidth budget, 200-match scale target, adversarial input validation, rate limiting, and silent-stall heartbeat timeout all lack corresponding tests. No idea-contradiction findings — the original idea contains no explicit `NOT X` disclaimers to violate.
+Strong first draft: all nine mandatory sections are present, the non-goals are unusually disciplined, and the TDD-first test list exists. The main weaknesses are (a) a broken architecture placeholder that contradicts the real content, (b) a confused RTT-vs-one-way budget in §2.5 that undermines the sync-model justification, (c) underspecified garbage/B2B rules and undefined sudden-death behavior at the 10-minute cap, (d) missing automated coverage for the snapshot-delta pipeline, input-delay behavior, heartbeat stall-timeout, bandwidth, and 200-match concurrency claims, and (e) a set of smaller wire-protocol ambiguities (Ping vs Pong, Input bit layout, capabilities negotiation, delta encoding, garbage-RNG derivation) that must be pinned before a versioned v1 protocol can claim cross-implementation compatibility.
 
 ## contradiction
 
-- (major) §4 Architecture contains a placeholder block between `architecture:begin` and `architecture:end` that reads "(architecture not yet specified)" yet §4.1–4.3 provide a detailed architecture (component diagram, key abstractions, wire protocol). A mechanical reader (or template tool) honouring the marker block would conclude the architecture section is empty/unfilled. Either populate the marker block with the diagram from §4.1 or delete the placeholder; as written the two statements directly contradict each other.
-- (major) §8 Sprint 1 states the `multiplayer` feature flag is "defaulted *off* until Sprint 3 so main stays shippable", yet Sprint 2 ships `blocktxt mp local` as a user-facing dev aid. `mp local` lives inside the multiplayer subcommand tree and cannot ship in Sprint 2 if the flag only turns on in Sprint 3. Resolve by either flipping the flag in Sprint 2 or gating `mp local` behind a separate flag.
-- (major) §2.5 scale table labels the 150 ms budget as both RTT and one-way latency in the same row: `RTT budget | ≤ 150 ms one-way latency for "feels responsive"`. RTT (round-trip) and one-way are factor-of-2 different; the protocol's 2-tick input-delay argument in §2.3 only checks out under one interpretation. Pick one definition and use it consistently (the downstream heartbeat, input-delay, and manual-test thresholds all depend on it).
-- (major) §5.3 specifies garbage via formula `garbage_out = lines_cleared - 1` plus a single carve-out "B2B quads send 5", but §6.1 requires a test that `lines_cleared → garbage_out` matches "the specified table exactly, including B2B × 1.5 rounding". No such table and no ×1.5 rule appear anywhere in the spec. The test cannot be written against the current text; either add the full table (including B2B behaviour for triples/doubles and the ×1.5 rounding rule) or rewrite §6.1 to match the simple formula.
+- (major) §4 contains an architecture placeholder block that literally reads `(architecture not yet specified)` between the `<!-- architecture:begin -->` and `<!-- architecture:end -->` markers, directly contradicting the detailed content in §§4.1–4.3. Either the placeholder must be removed or the real diagram moved inside the block; as written, an automated doc-generator reading only the marked region will emit `architecture not yet specified` for a spec that does in fact specify architecture.
+- (major) §2.5 table row reads: `| RTT budget | ≤ 150 ms one-way latency for "feels responsive" |`. RTT (round-trip time) and one-way latency are different quantities; the budget can be one or the other but not both. This is load-bearing for §2.3's claim that RTT + 2-tick input delay is imperceptible — if the real target is 150 ms one-way (i.e. 300 ms RTT) the perceptibility claim is wrong.
+- (major) §4.3 states snapshots `are sent unconditionally every tick at 60 Hz; the server rate-limits them to a minimum tick gap of 1 even when acks stall.` A minimum gap of 1 tick at 60 Hz IS every tick, so the 'rate-limits' clause either restates the previous clause or silently means something else (e.g. gap of ≥1 tick under backpressure). The actual backpressure policy is undefined.
 
 ## ambiguity
 
-- (major) §5.4 says "client sends `Pong(nonce)` every 500 ms; server replies" and §4.3 lists only `Pong` (0x09) — there is no `Ping` frame. In standard usage the initiator sends Ping and the responder sends Pong; here the client is sending Pong unsolicited. It is also unclear what the server replies *with* (another Pong? An Ack?) and which side's 3 s timeout the "no pong for 3 s" rule refers to. Add a `Ping` frame or rename, and state explicitly who measures what timeout.
-- (major) §5.3 states the server drains "up to 8 rows of garbage" before the next piece spawn, but does not say what happens to rows in excess of 8 in the queue. Do they persist to the next spawn, get coalesced, or get dropped? This is directly observable to players (it changes pressure dynamics after a quad combo) and must be pinned down.
-- (major) §2.5 caps match duration at 10 minutes "otherwise sudden-death", but sudden-death is never defined anywhere else in the spec. Which rules change (gravity speed-up, forced garbage, simultaneous top-out resolution, draw handling)? Without a definition neither the server sim nor the manual test plan can verify it.
-- (major) §5.1 and §9 rely on "fixed-point only" math to guarantee cross-arch determinism, but no section specifies which fields convert from float to fixed-point, what the scale/precision is, or how this interacts with the existing v0.1 simulation (which presumably uses floats for gravity, DAS, etc.). The determinism claim and the cross-arch CI test in §6.2 both rest on an unspecified conversion.
-- (major) Error/Goodbye enum values are referenced but not enumerated. §5.4 names `Goodbye(PeerDisconnected)` and `Goodbye(UserQuit)`; §6.1 names `Error(VersionMismatch)`; user story 2 implies discriminated errors for DNS/TLS/handshake/version-mismatch/room-not-found. §4.3 merely describes the frames as "reason (enum)" and "code, human-readable string" without listing the enum members. Add an authoritative enum table — this is wire-breaking once v1 ships.
-- (minor) §5.6 defines both `--server URL` and the `BLOCKTXT_SERVER` env var but does not specify precedence when both are set, nor what happens when the value is malformed (crash vs fall back to compiled-in default). CLI precedence rules should be unambiguous before shipping.
-- (minor) §5.6 shows `blocktxt mp join ABCDE` (uppercase) but §4.2 defines codes as Crockford-base32, which is conventionally case-insensitive on input. The spec does not say whether `abcde` is accepted, normalised, or rejected. Given user story 2 explicitly emphasises actionable errors for room-not-found, case handling must be pinned down.
-- (major) §5.3 seeds garbage-gap RNG from "match seed + tick + recipient id", but recipient id is not defined anywhere (is it host=0/guest=1? a UUID? the room code?). Two clients computing different recipient ids will produce divergent garbage and desync the determinism test in §6.2. Pin this down.
-- (minor) §2.3 states "No client-side prediction in v1" but §4.2 defines a `SnapshotMirror` that the render thread reads "each frame" with the net thread "one tick behind at worst". If the render frame rate is 60 fps and the network is lossy/jittery, the render loop will either block (stutter) or display a stale tick. The spec does not say which, nor what the mirror does when no new snapshot has arrived by frame time. This is visible to players.
+- (major) Garbage-exchange rules are underspecified. §5.3 gives `garbage_out = lines_cleared - 1` and a specific `B2B quad → 5` value; §6.1 adds a test for `B2B × 1.5 rounding`. Rounding mode (floor/ceil/banker's) is not stated; B2B doubles and triples are not specified; interaction with the `up to 8 rows` drain cap in §5.3 (does excess stay queued? drop?) is not stated; and §6.1's garbage-table test does not cover the cap or the B2B-double/triple cases.
+- (major) §2.5 specifies a 10-minute hard cap with `otherwise sudden-death`, but sudden-death mechanics are never defined anywhere in the spec — how the winner is determined (by score? by well height? coin flip?), whether garbage rate changes, or whether the cap terminates the match outright. A release-blocking rule with no defined behavior.
+- (minor) §5.4 says `client sends Pong(nonce) every 500 ms; server replies`, but §4.3's frame catalogue lists only `Pong (0x09)` with no `Ping`. Either the naming is inverted (clients should send `Ping`, server responds with `Pong`) or both sides emit `Pong`, which makes correlation ambiguous and inconsistent with RFC 6455 semantics.
+- (minor) §4.2 defines `sim::Match::step(inputs_a, inputs_b, dt) -> …` while §5.1 says `time advances only via step(dt) where dt is always exactly one tick on the server`. Exposing `dt` as a parameter while requiring it to be a constant invites determinism drift — if the client mirror ever passes a different `dt` (e.g. for catch-up), determinism breaks silently. Spec should either remove the parameter or state the permitted values and what happens otherwise.
+- (minor) §5.3's garbage RNG is described as `seeded from match seed + tick + recipient id, so deterministic`, but the mixing function is not defined. §5.1 separately says the simulation uses a single `ChaCha20Rng` seeded from the match seed. If the garbage RNG is a sub-stream of the sim RNG the call-order must be pinned; if it is an independent RNG the derivation function (e.g. `ChaCha20Rng::from_seed(hash(match_seed ∥ tick ∥ recipient))`) must be specified. Either way, two reasonable implementations can diverge.
+- (minor) §4.3's `Input` frame is described as `bitset of Inputs`, but the bit layout (which input maps to which bit) is not specified. For a versioned wire protocol where `Input` is replay-safe and cross-client, the bit assignment is load-bearing and should be pinned in the spec.
+- (minor) §4.3's `Hello` frame carries `capabilities`, but the set of legal capability tags and the negotiation algorithm (intersection? fail on unknown? required vs optional caps?) are not defined. Given §1's `Version mismatch → clean refusal` non-goal, the role of `capabilities` in v1 is unclear — is it forward-compatibility scaffolding, or does it gate behavior in v1?
+- (minor) §5.6 defines both `--server URL` and `BLOCKTXT_SERVER` env var, but precedence when both are set is not specified. Convention varies (CLI usually wins); a spec that names both should say which.
+- (minor) §5.3 HUD garbage indicator reuses existing `DIM → OVERLAY → NEW_BEST` colour ramp, but the pending-row thresholds at which each step triggers are not defined. Without thresholds, two implementations render different HUDs for identical state.
+- (minor) §2.3 promises `No client-side prediction in v1` with `server-authoritative fixed-tick`, and §4.2 describes `SnapshotMirror` as `One tick behind at worst`. The visible rendering policy is under-described: is the local player's own piece rendered from the server snapshot (perceived lag = RTT + 2 ticks) or from a local input-echo ghost? §5.2 state diagram doesn't resolve this, and the choice materially affects feel on the stated ≤150 ms budget.
 
 ## weak-testing
 
-- (major) §6.1 tick-budget invariant tests only 2 active matches, but §2.5 targets 200 concurrent matches per 1 vCPU. A 2-match microbench tells you almost nothing about whether the 200-match scale target holds (scheduler overhead, allocator pressure, and cache behaviour all change non-linearly). Add a soak or load test that exercises a realistic match count, or explicitly lower the advertised scale target.
-- (major) The §2.5 bandwidth budget (≤ 8 KiB/s steady state per client, delta-compressed snapshots) has no corresponding test. Given delta-compression is claimed as the mechanism that makes the budget achievable, this is load-bearing and should be asserted in an integration test that measures bytes-on-wire over a scripted match.
-- (major) §5.5 promises the server "validates every client `Input` against the simulation" and §5.5 also promises rate limiting on `JoinRoom` (10/min/IP), but §6 contains no tests for either: no adversarial-input test (malformed bitsets, inputs from the wrong player slot, inputs for a match that ended), and no rate-limit test. For a publicly-exposed service these are the tests you actually need.
-- (major) §6.2 "Loopback match: … script a 30-second match" does not say what the scripted inputs are or what invariants the assertion checks beyond "`MatchResult` event is emitted and both clients exit cleanly". Without a deterministic input script and explicit output expectations (final scores, winner identity, garbage totals) the test is unlikely to catch regressions.
-- (major) Heartbeat/stall detection (§5.4: "No pong for 3 s → server declares the session stalled and awards the match to the peer") is one of the most subtle pieces of the protocol and has no unit test. §6.2 has a "kill one client's socket" test, but TCP-reset is not the same code path as a silent stall (no RST, just packet loss). Add a test that simulates dropped packets/zero bandwidth without closing the socket.
-- (minor) §6.1 version-mismatch test only exercises the client-newer-than-server direction (`proto_version = 2` against v1). The reverse (old client against new server) is the common rollout failure and is not tested. Add a symmetric test.
-- (minor) Client-side snapshot-mirror correctness (SPSC slot, "one tick behind at worst") is called out as a key abstraction in §4.2 but has no test in §6. If the mirror tears or goes stale the render layer silently shows wrong state; this is exactly the kind of concurrency code that needs a targeted unit test with a stressing harness.
+- (major) The tests plan has no coverage for the snapshot pipeline itself: no test for delta-snapshot encoding/decoding correctness, no test for recovery when `ack_seq` falls behind beyond a one-tick window, no test for the `INPUT_DELAY = 2 ticks` pipeline (e.g. that an input pressed at client tick T is applied at server tick T+2 under nominal RTT), and no test for the 3-second heartbeat-stall → auto-award rule in §5.4. These are the core correctness properties of the chosen sync model.
+- (major) §2.5 commits to concrete performance budgets: `≤ 8 KiB/s` steady-state client bandwidth and `200 concurrent matches per 1-vCPU / 512 MiB` server. §6.1's only performance test is a criterion bench of `server step for 2 active matches < 1 ms`. There is no bandwidth measurement and no load test at or near the 200-match target, so both headline numbers are unverified claims.
+- (minor) Security-posture rules in §5.5 have thin automated coverage. `≤ 10 JoinRoom attempts per IP per minute` rate-limit, `silently dropped` invalid-input rule, and `7-day log retention` are all asserted but have no test (automated or manual) in §6. The fuzz target on `proto::decode` partially covers crash-resistance but not validation/rate limiting.
+- (minor) §6.1 cross-arch determinism lists macOS arm64 and Linux x86_64, but §8 Sprint 4 QA matrix adds macOS x86_64, and §6.3 CI additions do not include it. The determinism SHA-256 digest check as specified does not cover the platform QA is expected to sign off on.
+- (minor) `Ctrl-C / SIGTERM sends Goodbye(UserQuit) before closing the socket` (§5.4) is only exercised by a manual checklist item in §6.4. A signal-driven graceful-shutdown path is easy to regress silently; an automated test spawning the binary and sending SIGTERM would be cheap and is missing.
 
 ## missing-requirement
 
-- (major) §9 risk table mentions "Fixed-point only" as the desync mitigation, but §5 Implementation details contains no subsection specifying the fixed-point representation, arithmetic rules, or conversion strategy from the existing v0.1 float-based simulation. Either add a §5.x "Deterministic arithmetic" subsection or drop the fixed-point commitment.
+- (minor) Mandatory baseline check: all nine sections are present in the document (version header `SPEC v0.1`; §1 goal/why; §3 five user stories with persona+action+outcome; §4 architecture — though see the `architecture not yet specified` contradiction above; §5 implementation details; §6 tests plan with red/green TDD call-out in §6.1; §7 team with counts and skill labels totalling 4 FT + 1 split; §8 4-sprint plan with explicit `→`/`∥` parallelization; §10 changelog). No missing-section finding is raised; this entry is informational.
 
 ## suggested-next-version
 
@@ -46,111 +44,101 @@ v0.2
   "findings": [
     {
       "category": "contradiction",
-      "text": "§4 Architecture contains a placeholder block between `architecture:begin` and `architecture:end` that reads \"(architecture not yet specified)\" yet §4.1–4.3 provide a detailed architecture (component diagram, key abstractions, wire protocol). A mechanical reader (or template tool) honouring the marker block would conclude the architecture section is empty/unfilled. Either populate the marker block with the diagram from §4.1 or delete the placeholder; as written the two statements directly contradict each other.",
+      "text": "§4 contains an architecture placeholder block that literally reads `(architecture not yet specified)` between the `<!-- architecture:begin -->` and `<!-- architecture:end -->` markers, directly contradicting the detailed content in §§4.1–4.3. Either the placeholder must be removed or the real diagram moved inside the block; as written, an automated doc-generator reading only the marked region will emit `architecture not yet specified` for a spec that does in fact specify architecture.",
       "severity": "major"
     },
     {
       "category": "contradiction",
-      "text": "§8 Sprint 1 states the `multiplayer` feature flag is \"defaulted *off* until Sprint 3 so main stays shippable\", yet Sprint 2 ships `blocktxt mp local` as a user-facing dev aid. `mp local` lives inside the multiplayer subcommand tree and cannot ship in Sprint 2 if the flag only turns on in Sprint 3. Resolve by either flipping the flag in Sprint 2 or gating `mp local` behind a separate flag.",
+      "text": "§2.5 table row reads: `| RTT budget | ≤ 150 ms one-way latency for \"feels responsive\" |`. RTT (round-trip time) and one-way latency are different quantities; the budget can be one or the other but not both. This is load-bearing for §2.3's claim that RTT + 2-tick input delay is imperceptible — if the real target is 150 ms one-way (i.e. 300 ms RTT) the perceptibility claim is wrong.",
       "severity": "major"
     },
     {
       "category": "contradiction",
-      "text": "§2.5 scale table labels the 150 ms budget as both RTT and one-way latency in the same row: `RTT budget | ≤ 150 ms one-way latency for \"feels responsive\"`. RTT (round-trip) and one-way are factor-of-2 different; the protocol's 2-tick input-delay argument in §2.3 only checks out under one interpretation. Pick one definition and use it consistently (the downstream heartbeat, input-delay, and manual-test thresholds all depend on it).",
-      "severity": "major"
-    },
-    {
-      "category": "contradiction",
-      "text": "§5.3 specifies garbage via formula `garbage_out = lines_cleared - 1` plus a single carve-out \"B2B quads send 5\", but §6.1 requires a test that `lines_cleared → garbage_out` matches \"the specified table exactly, including B2B × 1.5 rounding\". No such table and no ×1.5 rule appear anywhere in the spec. The test cannot be written against the current text; either add the full table (including B2B behaviour for triples/doubles and the ×1.5 rounding rule) or rewrite §6.1 to match the simple formula.",
+      "text": "§4.3 states snapshots `are sent unconditionally every tick at 60 Hz; the server rate-limits them to a minimum tick gap of 1 even when acks stall.` A minimum gap of 1 tick at 60 Hz IS every tick, so the 'rate-limits' clause either restates the previous clause or silently means something else (e.g. gap of ≥1 tick under backpressure). The actual backpressure policy is undefined.",
       "severity": "major"
     },
     {
       "category": "ambiguity",
-      "text": "§5.4 says \"client sends `Pong(nonce)` every 500 ms; server replies\" and §4.3 lists only `Pong` (0x09) — there is no `Ping` frame. In standard usage the initiator sends Ping and the responder sends Pong; here the client is sending Pong unsolicited. It is also unclear what the server replies *with* (another Pong? An Ack?) and which side's 3 s timeout the \"no pong for 3 s\" rule refers to. Add a `Ping` frame or rename, and state explicitly who measures what timeout.",
+      "text": "Garbage-exchange rules are underspecified. §5.3 gives `garbage_out = lines_cleared - 1` and a specific `B2B quad → 5` value; §6.1 adds a test for `B2B × 1.5 rounding`. Rounding mode (floor/ceil/banker's) is not stated; B2B doubles and triples are not specified; interaction with the `up to 8 rows` drain cap in §5.3 (does excess stay queued? drop?) is not stated; and §6.1's garbage-table test does not cover the cap or the B2B-double/triple cases.",
       "severity": "major"
     },
     {
       "category": "ambiguity",
-      "text": "§5.3 states the server drains \"up to 8 rows of garbage\" before the next piece spawn, but does not say what happens to rows in excess of 8 in the queue. Do they persist to the next spawn, get coalesced, or get dropped? This is directly observable to players (it changes pressure dynamics after a quad combo) and must be pinned down.",
+      "text": "§2.5 specifies a 10-minute hard cap with `otherwise sudden-death`, but sudden-death mechanics are never defined anywhere in the spec — how the winner is determined (by score? by well height? coin flip?), whether garbage rate changes, or whether the cap terminates the match outright. A release-blocking rule with no defined behavior.",
+      "severity": "major"
+    },
+    {
+      "category": "weak-testing",
+      "text": "The tests plan has no coverage for the snapshot pipeline itself: no test for delta-snapshot encoding/decoding correctness, no test for recovery when `ack_seq` falls behind beyond a one-tick window, no test for the `INPUT_DELAY = 2 ticks` pipeline (e.g. that an input pressed at client tick T is applied at server tick T+2 under nominal RTT), and no test for the 3-second heartbeat-stall → auto-award rule in §5.4. These are the core correctness properties of the chosen sync model.",
+      "severity": "major"
+    },
+    {
+      "category": "weak-testing",
+      "text": "§2.5 commits to concrete performance budgets: `≤ 8 KiB/s` steady-state client bandwidth and `200 concurrent matches per 1-vCPU / 512 MiB` server. §6.1's only performance test is a criterion bench of `server step for 2 active matches < 1 ms`. There is no bandwidth measurement and no load test at or near the 200-match target, so both headline numbers are unverified claims.",
       "severity": "major"
     },
     {
       "category": "ambiguity",
-      "text": "§2.5 caps match duration at 10 minutes \"otherwise sudden-death\", but sudden-death is never defined anywhere else in the spec. Which rules change (gravity speed-up, forced garbage, simultaneous top-out resolution, draw handling)? Without a definition neither the server sim nor the manual test plan can verify it.",
-      "severity": "major"
-    },
-    {
-      "category": "ambiguity",
-      "text": "§5.1 and §9 rely on \"fixed-point only\" math to guarantee cross-arch determinism, but no section specifies which fields convert from float to fixed-point, what the scale/precision is, or how this interacts with the existing v0.1 simulation (which presumably uses floats for gravity, DAS, etc.). The determinism claim and the cross-arch CI test in §6.2 both rest on an unspecified conversion.",
-      "severity": "major"
-    },
-    {
-      "category": "ambiguity",
-      "text": "Error/Goodbye enum values are referenced but not enumerated. §5.4 names `Goodbye(PeerDisconnected)` and `Goodbye(UserQuit)`; §6.1 names `Error(VersionMismatch)`; user story 2 implies discriminated errors for DNS/TLS/handshake/version-mismatch/room-not-found. §4.3 merely describes the frames as \"reason (enum)\" and \"code, human-readable string\" without listing the enum members. Add an authoritative enum table — this is wire-breaking once v1 ships.",
-      "severity": "major"
-    },
-    {
-      "category": "ambiguity",
-      "text": "§5.6 defines both `--server URL` and the `BLOCKTXT_SERVER` env var but does not specify precedence when both are set, nor what happens when the value is malformed (crash vs fall back to compiled-in default). CLI precedence rules should be unambiguous before shipping.",
+      "text": "§5.4 says `client sends Pong(nonce) every 500 ms; server replies`, but §4.3's frame catalogue lists only `Pong (0x09)` with no `Ping`. Either the naming is inverted (clients should send `Ping`, server responds with `Pong`) or both sides emit `Pong`, which makes correlation ambiguous and inconsistent with RFC 6455 semantics.",
       "severity": "minor"
     },
     {
       "category": "ambiguity",
-      "text": "§5.6 shows `blocktxt mp join ABCDE` (uppercase) but §4.2 defines codes as Crockford-base32, which is conventionally case-insensitive on input. The spec does not say whether `abcde` is accepted, normalised, or rejected. Given user story 2 explicitly emphasises actionable errors for room-not-found, case handling must be pinned down.",
-      "severity": "minor"
-    },
-    {
-      "category": "weak-testing",
-      "text": "§6.1 tick-budget invariant tests only 2 active matches, but §2.5 targets 200 concurrent matches per 1 vCPU. A 2-match microbench tells you almost nothing about whether the 200-match scale target holds (scheduler overhead, allocator pressure, and cache behaviour all change non-linearly). Add a soak or load test that exercises a realistic match count, or explicitly lower the advertised scale target.",
-      "severity": "major"
-    },
-    {
-      "category": "weak-testing",
-      "text": "The §2.5 bandwidth budget (≤ 8 KiB/s steady state per client, delta-compressed snapshots) has no corresponding test. Given delta-compression is claimed as the mechanism that makes the budget achievable, this is load-bearing and should be asserted in an integration test that measures bytes-on-wire over a scripted match.",
-      "severity": "major"
-    },
-    {
-      "category": "weak-testing",
-      "text": "§5.5 promises the server \"validates every client `Input` against the simulation\" and §5.5 also promises rate limiting on `JoinRoom` (10/min/IP), but §6 contains no tests for either: no adversarial-input test (malformed bitsets, inputs from the wrong player slot, inputs for a match that ended), and no rate-limit test. For a publicly-exposed service these are the tests you actually need.",
-      "severity": "major"
-    },
-    {
-      "category": "weak-testing",
-      "text": "§6.2 \"Loopback match: … script a 30-second match\" does not say what the scripted inputs are or what invariants the assertion checks beyond \"`MatchResult` event is emitted and both clients exit cleanly\". Without a deterministic input script and explicit output expectations (final scores, winner identity, garbage totals) the test is unlikely to catch regressions.",
-      "severity": "major"
-    },
-    {
-      "category": "weak-testing",
-      "text": "Heartbeat/stall detection (§5.4: \"No pong for 3 s → server declares the session stalled and awards the match to the peer\") is one of the most subtle pieces of the protocol and has no unit test. §6.2 has a \"kill one client's socket\" test, but TCP-reset is not the same code path as a silent stall (no RST, just packet loss). Add a test that simulates dropped packets/zero bandwidth without closing the socket.",
-      "severity": "major"
-    },
-    {
-      "category": "weak-testing",
-      "text": "§6.1 version-mismatch test only exercises the client-newer-than-server direction (`proto_version = 2` against v1). The reverse (old client against new server) is the common rollout failure and is not tested. Add a symmetric test.",
-      "severity": "minor"
-    },
-    {
-      "category": "weak-testing",
-      "text": "Client-side snapshot-mirror correctness (SPSC slot, \"one tick behind at worst\") is called out as a key abstraction in §4.2 but has no test in §6. If the mirror tears or goes stale the render layer silently shows wrong state; this is exactly the kind of concurrency code that needs a targeted unit test with a stressing harness.",
+      "text": "§4.2 defines `sim::Match::step(inputs_a, inputs_b, dt) -> …` while §5.1 says `time advances only via step(dt) where dt is always exactly one tick on the server`. Exposing `dt` as a parameter while requiring it to be a constant invites determinism drift — if the client mirror ever passes a different `dt` (e.g. for catch-up), determinism breaks silently. Spec should either remove the parameter or state the permitted values and what happens otherwise.",
       "severity": "minor"
     },
     {
       "category": "ambiguity",
-      "text": "§5.3 seeds garbage-gap RNG from \"match seed + tick + recipient id\", but recipient id is not defined anywhere (is it host=0/guest=1? a UUID? the room code?). Two clients computing different recipient ids will produce divergent garbage and desync the determinism test in §6.2. Pin this down.",
-      "severity": "major"
+      "text": "§5.3's garbage RNG is described as `seeded from match seed + tick + recipient id, so deterministic`, but the mixing function is not defined. §5.1 separately says the simulation uses a single `ChaCha20Rng` seeded from the match seed. If the garbage RNG is a sub-stream of the sim RNG the call-order must be pinned; if it is an independent RNG the derivation function (e.g. `ChaCha20Rng::from_seed(hash(match_seed ∥ tick ∥ recipient))`) must be specified. Either way, two reasonable implementations can diverge.",
+      "severity": "minor"
     },
     {
       "category": "ambiguity",
-      "text": "§2.3 states \"No client-side prediction in v1\" but §4.2 defines a `SnapshotMirror` that the render thread reads \"each frame\" with the net thread \"one tick behind at worst\". If the render frame rate is 60 fps and the network is lossy/jittery, the render loop will either block (stutter) or display a stale tick. The spec does not say which, nor what the mirror does when no new snapshot has arrived by frame time. This is visible to players.",
+      "text": "§4.3's `Input` frame is described as `bitset of Inputs`, but the bit layout (which input maps to which bit) is not specified. For a versioned wire protocol where `Input` is replay-safe and cross-client, the bit assignment is load-bearing and should be pinned in the spec.",
+      "severity": "minor"
+    },
+    {
+      "category": "ambiguity",
+      "text": "§4.3's `Hello` frame carries `capabilities`, but the set of legal capability tags and the negotiation algorithm (intersection? fail on unknown? required vs optional caps?) are not defined. Given §1's `Version mismatch → clean refusal` non-goal, the role of `capabilities` in v1 is unclear — is it forward-compatibility scaffolding, or does it gate behavior in v1?",
+      "severity": "minor"
+    },
+    {
+      "category": "ambiguity",
+      "text": "§5.6 defines both `--server URL` and `BLOCKTXT_SERVER` env var, but precedence when both are set is not specified. Convention varies (CLI usually wins); a spec that names both should say which.",
+      "severity": "minor"
+    },
+    {
+      "category": "ambiguity",
+      "text": "§5.3 HUD garbage indicator reuses existing `DIM → OVERLAY → NEW_BEST` colour ramp, but the pending-row thresholds at which each step triggers are not defined. Without thresholds, two implementations render different HUDs for identical state.",
+      "severity": "minor"
+    },
+    {
+      "category": "weak-testing",
+      "text": "Security-posture rules in §5.5 have thin automated coverage. `≤ 10 JoinRoom attempts per IP per minute` rate-limit, `silently dropped` invalid-input rule, and `7-day log retention` are all asserted but have no test (automated or manual) in §6. The fuzz target on `proto::decode` partially covers crash-resistance but not validation/rate limiting.",
+      "severity": "minor"
+    },
+    {
+      "category": "weak-testing",
+      "text": "§6.1 cross-arch determinism lists macOS arm64 and Linux x86_64, but §8 Sprint 4 QA matrix adds macOS x86_64, and §6.3 CI additions do not include it. The determinism SHA-256 digest check as specified does not cover the platform QA is expected to sign off on.",
+      "severity": "minor"
+    },
+    {
+      "category": "weak-testing",
+      "text": "`Ctrl-C / SIGTERM sends Goodbye(UserQuit) before closing the socket` (§5.4) is only exercised by a manual checklist item in §6.4. A signal-driven graceful-shutdown path is easy to regress silently; an automated test spawning the binary and sending SIGTERM would be cheap and is missing.",
+      "severity": "minor"
+    },
+    {
+      "category": "ambiguity",
+      "text": "§2.3 promises `No client-side prediction in v1` with `server-authoritative fixed-tick`, and §4.2 describes `SnapshotMirror` as `One tick behind at worst`. The visible rendering policy is under-described: is the local player's own piece rendered from the server snapshot (perceived lag = RTT + 2 ticks) or from a local input-echo ghost? §5.2 state diagram doesn't resolve this, and the choice materially affects feel on the stated ≤150 ms budget.",
       "severity": "minor"
     },
     {
       "category": "missing-requirement",
-      "text": "§9 risk table mentions \"Fixed-point only\" as the desync mitigation, but §5 Implementation details contains no subsection specifying the fixed-point representation, arithmetic rules, or conversion strategy from the existing v0.1 float-based simulation. Either add a §5.x \"Deterministic arithmetic\" subsection or drop the fixed-point commitment.",
-      "severity": "major"
+      "text": "Mandatory baseline check: all nine sections are present in the document (version header `SPEC v0.1`; §1 goal/why; §3 five user stories with persona+action+outcome; §4 architecture — though see the `architecture not yet specified` contradiction above; §5 implementation details; §6 tests plan with red/green TDD call-out in §6.1; §7 team with counts and skill labels totalling 4 FT + 1 split; §8 4-sprint plan with explicit `→`/`∥` parallelization; §10 changelog). No missing-section finding is raised; this entry is informational.",
+      "severity": "minor"
     }
   ],
-  "summary": "The spec covers all nine mandatory baseline sections and is strong on scope discipline, topology rationale, and sprint parallelisation. The most serious gaps are: (1) the §4 architecture placeholder contradicts the populated §4.1–4.3; (2) the Sprint-1 feature-flag rule contradicts Sprint 2 shipping `mp local`; (3) garbage-exchange prose (§5.3) does not match the B2B ×1.5 table referenced by its test (§6.1); (4) RTT-vs-one-way conflated in §2.5; (5) heartbeat uses `Pong` with no `Ping` frame defined. Multiple enums (Goodbye/Error reasons), the fixed-point arithmetic scheme, sudden-death rules, and garbage queue-overflow behaviour are referenced but never specified. Testing is weak on the load-bearing claims: bandwidth budget, 200-match scale target, adversarial input validation, rate limiting, and silent-stall heartbeat timeout all lack corresponding tests. No idea-contradiction findings — the original idea contains no explicit `NOT X` disclaimers to violate.",
+  "summary": "Strong first draft: all nine mandatory sections are present, the non-goals are unusually disciplined, and the TDD-first test list exists. The main weaknesses are (a) a broken architecture placeholder that contradicts the real content, (b) a confused RTT-vs-one-way budget in §2.5 that undermines the sync-model justification, (c) underspecified garbage/B2B rules and undefined sudden-death behavior at the 10-minute cap, (d) missing automated coverage for the snapshot-delta pipeline, input-delay behavior, heartbeat stall-timeout, bandwidth, and 200-match concurrency claims, and (e) a set of smaller wire-protocol ambiguities (Ping vs Pong, Input bit layout, capabilities negotiation, delta encoding, garbage-RNG derivation) that must be pinned before a versioned v1 protocol can claim cross-implementation compatibility.",
   "suggested_next_version": "v0.2",
   "usage": null,
   "effort_used": "max"

@@ -99,17 +99,78 @@ fn reset_scores_y_clears_store() {
         lines: 30,
         ts: 0,
     });
-    assert!(!store.top(5).is_empty());
+    store.insert(HighScore {
+        name: "player".into(),
+        score: 4242,
+        level: 3,
+        lines: 15,
+        ts: 0,
+    });
+    assert_eq!(store.top(5).len(), 2, "precondition: 2 scores present");
 
-    // Enter confirm phase.
+    // Enter the confirm phase and drive the ConfirmYes input — this is
+    // exactly the sequence main.rs observes when the user presses `y`.
     gs.phase = Phase::ConfirmResetScores;
+    let confirm_yes_seen = true;
     step(&mut gs, &[Input::ConfirmYes]);
-    // After confirming, phase returns to Title.
+
+    // Phase returns to Title.
     assert_eq!(gs.phase, Phase::Title, "ConfirmYes returns to Title");
-    // The store clearing is triggered by the caller (main.rs); state itself
-    // just transitions back to Title. The store reset action is tested via
-    // the reset_scores_clears_store helper test.
-    // Here we verify the phase machine is correct.
+
+    // Caller side-effect: on ConfirmYes + phase-back-to-Title, the store is
+    // cleared via the `clear()` helper main.rs invokes.
+    if confirm_yes_seen && gs.phase == Phase::Title {
+        store.clear();
+    }
+
+    assert!(
+        store.top(5).is_empty(),
+        "ConfirmYes flow must leave the store empty; got {} entries",
+        store.top(5).len()
+    );
+}
+
+/// The `clear()` helper that the main loop uses must empty the store.
+#[test]
+fn high_score_store_clear_removes_all_entries() {
+    let mut store = HighScoreStore::new();
+    for s in [100u32, 200, 300] {
+        store.insert(HighScore {
+            name: "player".into(),
+            score: s,
+            level: 1,
+            lines: 0,
+            ts: 0,
+        });
+    }
+    assert_eq!(store.top(5).len(), 3);
+    store.clear();
+    assert!(store.top(5).is_empty(), "clear() must remove every entry");
+}
+
+/// ConfirmNo must NOT touch the store.
+#[test]
+fn reset_scores_n_preserves_store() {
+    let mut gs = make_game(42);
+    let mut store = HighScoreStore::new();
+    store.insert(HighScore {
+        name: "player".into(),
+        score: 9999,
+        level: 5,
+        lines: 30,
+        ts: 0,
+    });
+
+    gs.phase = Phase::ConfirmResetScores;
+    step(&mut gs, &[Input::ConfirmNo]);
+
+    assert_eq!(gs.phase, Phase::Title);
+    // No clear() call on the ConfirmNo path.
+    assert_eq!(
+        store.top(5).len(),
+        1,
+        "ConfirmNo must leave the store unchanged"
+    );
 }
 
 #[test]

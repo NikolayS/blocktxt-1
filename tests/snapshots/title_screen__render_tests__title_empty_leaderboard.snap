@@ -16,7 +16,7 @@ expression: buf_to_string(&terminal)
                                                                                 
                              ╭─ high scores ──────╮                             
                              │                    │                             
-                             │no scores yet — play│                             
+                             │    no scores yet   │                             
                              │                    │                             
                              │                    │                             
                              │                    │                             

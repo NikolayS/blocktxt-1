@@ -122,9 +122,10 @@ fn draw_leaderboard(frame: &mut Frame, area: Rect, store: Option<&HighScoreStore
 
     let content: Vec<Line> = match scores {
         None | Some([]) => {
+            // Keep short so it fits the 20-char inner width of the box.
             vec![
                 Line::from(""),
-                Line::from(Span::styled("no scores yet — play to set one", dim_style)),
+                Line::from(Span::styled("no scores yet", dim_style)),
                 Line::from(""),
             ]
         }

@@ -347,7 +347,7 @@ fn run_loop(
             // If ConfirmYes was pressed and phase just returned to Title,
             // clear the in-memory store and persist the empty store.
             if confirm_yes_pressed && matches!(state.phase, Phase::Title) {
-                *store = HighScoreStore::new();
+                store.clear();
                 if let Some(dir) = persist_dir {
                     if let Err(e) = persistence::save(store, dir) {
                         eprintln!(

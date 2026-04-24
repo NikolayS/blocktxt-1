@@ -6,6 +6,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.1.2] — 2026-04-24
+
+Gameplay + visual expansion. Two SPEC §1a v0.2-deferred items land:
+hold piece and more theme choices.
+
+### Added
+
+- **Hold piece (`c` key)** (#62). Guideline-style hold: swap the
+  active piece into a hold slot (or draw from bag on first hold);
+  subsequent holds within a cycle swap active ↔ hold. Locked once
+  per piece cycle (prevents infinite-hold stalling); unlocks on
+  lock_piece, so hard-drop resets cleanly. Hold resets lock-delay
+  on the new piece. Spawn animation fires on the held piece. Hold
+  box renders above the next-queue in the HUD; `Modifier::DIM` when
+  locked for the cycle. Block-out transition if swapping would
+  spawn into occupied cells. Hold no-op in Title / Paused /
+  GameOver / during line-clear animation.
+- **Three new color palettes** (#61): **Gruvbox Dark** (morhetz
+  canonical hex), **Nord** (nordtheme.com reference), **Dracula**
+  (draculatheme.com reference). All 5 palettes now selectable via
+  `--theme`:
+  - `tokyo-night` / `tn` (default)
+  - `catppuccin-mocha` / `catppuccin` / `cm`
+  - `gruvbox-dark` / `gruvbox` / `gv`
+  - `nord` / `nord-dark`
+  - `dracula` / `dr`
+
+### Tests
+
+- 214 tests total (up from 193 in v0.1.1). 8 new hold-piece tests,
+  7 new palette-parsing + RGB-spec tests, 6 new render snapshots
+  (3 hold-box variants + 3 per-palette board_view baselines).
+
+### Known limitations (unchanged)
+
+- macOS SIGTSTP/SIGCONT round-trip untested via PTY — Linux-only
+  lifecycle tests; the flag-based implementation is exercised on
+  both platforms at compile + unit-test level.
+- Windows: WSL only.
+
+---
+
 ## [0.1.1] — 2026-04-24
 
 Polish release. No behavior-breaking changes to gameplay; all the

@@ -20,7 +20,10 @@ use blocktxt::Input;
 
 fn fake_state() -> GameState {
     let clock = Box::new(FakeClock::new(Instant::now()));
-    GameState::new(42, clock)
+    let mut gs = GameState::new(42, clock);
+    // Transition to Playing so render tests see a normal in-game state.
+    gs.step(std::time::Duration::ZERO, &[blocktxt::Input::StartGame]);
+    gs
 }
 
 /// Render a terminal buffer to a multiline string (one char per cell).

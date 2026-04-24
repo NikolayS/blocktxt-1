@@ -53,7 +53,7 @@ pub fn draw_with_scores(
             let is_new_best = is_new_best(state.score, high_scores);
             draw_game_over_overlay(frame, area, state, is_new_best);
         }
-        Phase::Playing => {}
+        Phase::Playing | Phase::Title | Phase::ConfirmResetScores => {}
     }
 }
 

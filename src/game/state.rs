@@ -83,6 +83,12 @@ pub enum Input {
     HardDrop,
     Pause,
     Restart,
+    /// Start the game from the Title screen.
+    StartGame,
+    /// Confirm reset-scores dialog (y).
+    ConfirmYes,
+    /// Cancel reset-scores dialog (n).
+    ConfirmNo,
 }
 
 /// Events emitted by `GameState::step` for the application layer.
@@ -113,9 +119,15 @@ pub enum GameOverReason {
 /// High-level game phase.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Phase {
+    /// Attract / title screen. No active piece.
+    Title,
     Playing,
     Paused,
-    GameOver { reason: GameOverReason },
+    GameOver {
+        reason: GameOverReason,
+    },
+    /// Confirmation dialog: reset high scores?
+    ConfirmResetScores,
 }
 
 // ── GameState ─────────────────────────────────────────────────────────────────
@@ -161,26 +173,19 @@ impl GameState {
     /// thereafter uses the `dt` passed to `step`.
     pub fn new(seed: u64, clock: Box<dyn Clock>) -> Self {
         let rng = StdRng::seed_from_u64(seed);
-        let mut bag = Bag::new(rng);
-
-        let mut next_queue: VecDeque<PieceKind> =
-            (0..NEXT_QUEUE_LEN).map(|_| bag.next().unwrap()).collect();
-
-        // Pop the first piece kind and spawn it.
-        let first_kind = next_queue.pop_front().unwrap();
-        next_queue.push_back(bag.next().unwrap());
-        let active = spawn(first_kind);
+        let bag = Bag::new(rng);
 
         let now = clock.now();
         Self {
             board: Board::empty(),
-            active: Some(active),
-            next_queue,
+            // No active piece until the player leaves the Title screen.
+            active: None,
+            next_queue: VecDeque::new(),
             score: 0,
             level: 1,
             lines_cleared: 0,
             b2b_active: false,
-            phase: Phase::Playing,
+            phase: Phase::Title,
             seed,
             bag,
             lock_state: None,
@@ -190,6 +195,32 @@ impl GameState {
             clock,
             last_tick: now,
         }
+    }
+
+    /// Initialise a fresh game round: fill the next queue and spawn the first
+    /// piece. Called when transitioning Title → Playing for the first time, or
+    /// on Restart.
+    fn init_round(&mut self) {
+        let rng = StdRng::seed_from_u64(self.seed);
+        let mut bag = Bag::new(rng);
+        let mut next_queue: VecDeque<PieceKind> =
+            (0..NEXT_QUEUE_LEN).map(|_| bag.next().unwrap()).collect();
+        let first_kind = next_queue.pop_front().unwrap();
+        next_queue.push_back(bag.next().unwrap());
+        let active = spawn(first_kind);
+
+        self.board = Board::empty();
+        self.active = Some(active);
+        self.next_queue = next_queue;
+        self.score = 0;
+        self.level = 1;
+        self.lines_cleared = 0;
+        self.b2b_active = false;
+        self.bag = bag;
+        self.lock_state = None;
+        self.soft_drop_held = false;
+        self.gravity_acc = Duration::ZERO;
+        self.line_clear_anim = None;
     }
 
     // ── step ────────────────────────────────────────────────────────────────
@@ -202,11 +233,44 @@ impl GameState {
         let mut events = Vec::new();
 
         match &self.phase {
+            Phase::Title => {
+                for &inp in inputs {
+                    match inp {
+                        // Any "action" input starts the game.
+                        Input::StartGame
+                        | Input::MoveLeft
+                        | Input::MoveRight
+                        | Input::RotateCw
+                        | Input::RotateCcw
+                        | Input::HardDrop
+                        | Input::SoftDropOn => {
+                            self.phase = Phase::Playing;
+                            self.init_round();
+                        }
+                        _ => {}
+                    }
+                }
+                return events;
+            }
+            Phase::ConfirmResetScores => {
+                for &inp in inputs {
+                    match inp {
+                        Input::ConfirmYes | Input::ConfirmNo => {
+                            // Both choices return to Title.
+                            // The caller (main.rs) is responsible for
+                            // clearing the store when ConfirmYes was pressed.
+                            self.phase = Phase::Title;
+                        }
+                        _ => {}
+                    }
+                }
+                return events;
+            }
             Phase::GameOver { .. } => {
-                // Only Restart is meaningful in GameOver.
+                // Restart goes back to Title (not directly into Playing).
                 for &inp in inputs {
                     if inp == Input::Restart {
-                        self.restart();
+                        self.reset_to_title();
                     }
                 }
                 return events;
@@ -266,7 +330,7 @@ impl GameState {
                 self.phase = Phase::Paused;
                 events.push(Event::Paused);
             }
-            Input::Restart => self.restart(),
+            Input::Restart => self.reset_to_title(),
             Input::SoftDropOn => self.soft_drop_held = true,
             Input::SoftDropOff => self.soft_drop_held = false,
             Input::HardDrop => self.hard_drop(events),
@@ -274,6 +338,8 @@ impl GameState {
             Input::MoveRight => self.try_shift(1, events),
             Input::RotateCw => self.try_rotate(RotationDir::Cw, events),
             Input::RotateCcw => self.try_rotate(RotationDir::Ccw, events),
+            // Already handled at the phase level; ignore if seen in Playing.
+            Input::StartGame | Input::ConfirmYes | Input::ConfirmNo => {}
         }
     }
 
@@ -586,27 +652,20 @@ impl GameState {
         self.active = Some(piece);
     }
 
-    // ── Restart ──────────────────────────────────────────────────────────────
+    // ── Restart / reset ──────────────────────────────────────────────────────
 
-    fn restart(&mut self) {
-        // Reuse the original seed so bag order is reproducible (#24).
-        let rng = StdRng::seed_from_u64(self.seed);
-        let mut bag = Bag::new(rng);
-        let mut next_queue: VecDeque<PieceKind> =
-            (0..NEXT_QUEUE_LEN).map(|_| bag.next().unwrap()).collect();
-        let first_kind = next_queue.pop_front().unwrap();
-        next_queue.push_back(bag.next().unwrap());
-        let active = spawn(first_kind);
-
+    /// Return to the Title screen. No active piece; ready for a new round.
+    fn reset_to_title(&mut self) {
         self.board = Board::empty();
-        self.active = Some(active);
-        self.next_queue = next_queue;
+        self.active = None;
+        self.next_queue = VecDeque::new();
         self.score = 0;
         self.level = 1;
         self.lines_cleared = 0;
         self.b2b_active = false;
-        self.phase = Phase::Playing;
-        self.bag = bag;
+        self.phase = Phase::Title;
+        let rng = StdRng::seed_from_u64(self.seed);
+        self.bag = Bag::new(rng);
         self.lock_state = None;
         self.soft_drop_held = false;
         self.gravity_acc = Duration::ZERO;

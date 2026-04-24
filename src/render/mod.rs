@@ -15,6 +15,7 @@ pub mod board_view;
 pub mod helpers;
 pub mod hud;
 pub mod theme;
+pub mod title;
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -22,7 +23,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::game::state::GameState;
+use crate::game::state::{GameState, Phase};
 use crate::persistence::HighScoreStore;
 pub use theme::Theme;
 
@@ -68,6 +69,12 @@ pub fn render_with_scores(
 
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         draw_too_small_overlay(frame, area);
+        return;
+    }
+
+    // Title and ConfirmResetScores phases use the title renderer.
+    if matches!(state.phase, Phase::Title | Phase::ConfirmResetScores) {
+        title::draw(frame, area, high_scores, theme);
         return;
     }
 

@@ -17,7 +17,9 @@ use blocktxt::Event;
 fn make_game(seed: u64) -> (GameState, FakeClock) {
     let origin = Instant::now();
     let clock = FakeClock::new(origin);
-    let gs = GameState::new(seed, Box::new(clock.clone()));
+    let mut gs = GameState::new(seed, Box::new(clock.clone()));
+    // Transition to Playing so animation tests can inject state directly.
+    gs.step(std::time::Duration::ZERO, &[Input::StartGame]);
     (gs, clock)
 }
 

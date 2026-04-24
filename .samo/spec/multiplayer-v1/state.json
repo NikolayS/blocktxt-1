@@ -11,11 +11,15 @@
   "calibration": null,
   "remote_stale": false,
   "coupled_fallback": false,
-  "head_sha": "dcfc01a95f88cb94f9e9fbf62264c90e74ba68d8",
-  "round_state": "committed",
-  "exit": null,
+  "head_sha": "55378aeb3f87cac9459aa974a1db882984f8fd4a",
+  "round_state": "lead_terminal",
+  "exit": {
+    "code": 4,
+    "reason": "lead-terminal:revise_timeout",
+    "round_index": 2
+  },
   "created_at": "2026-04-24T03:59:03.348Z",
-  "updated_at": "2026-04-24T04:24:40.491Z",
+  "updated_at": "2026-04-24T04:50:37.645Z",
   "input": {
     "idea": "Add two-player competitive multiplayer to blocktxt (v0.2)."
   }

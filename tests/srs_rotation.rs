@@ -142,32 +142,27 @@ fn srs_i_ccw_full_cycle_returns_to_zero() {
 ///   kick 3: ( 0, -2)
 ///   kick 4: (-1, -2)  ← winning kick on this board
 ///
-/// T in state R offsets from piece.rs: (1,0),(1,1),(2,1),(1,2).
-/// Block (4,18),(4,19),(5,19),(4,20) → kicks 0–3 all collide;
-/// kick 4 candidate origin (2,16): cells (3,16),(3,17),(4,17),(3,18) — clear.
+/// Reasoning is relative to spawn origin `(ox, oy)`:
+/// T in state R offsets: (1,0),(1,1),(2,1),(1,2).
+///   Kick 0 (0,0)     cells: (ox+1, oy),(ox+1, oy+1),(ox+2, oy+1),(ox+1, oy+2)
+///   Kick 1 (-1,0)    cells: (ox,   oy),(ox,   oy+1),(ox+1, oy+1),(ox,   oy+2)
+///   Kick 2 (-1,+1)   cells: (ox,   oy+1),(ox, oy+2),(ox+1, oy+2),(ox, oy+3)
+///   Kick 3 (0,-2)    cells: (ox+1, oy-2),(ox+1, oy-1),(ox+2, oy-1),(ox+1, oy)
+///   Kick 4 (-1,-2)   cells: (ox,   oy-2),(ox,   oy-1),(ox+1, oy-1),(ox,   oy)
+///
+/// Blocking (ox+1, oy+1), (ox+2, oy+1), (ox+1, oy+2), (ox+1, oy) makes
+/// kicks 0..=3 collide while kick 4 (-1,-2) fits.
 #[test]
 fn srs_rotation_uses_first_unblocked_kick() {
-    // T in state R offsets relative to origin: (1,0),(1,1),(2,1),(1,2).
-    // Kick 0 candidate origin = spawn origin (3,18):
-    //   cells (4,18),(4,19),(5,19),(4,20) — block all four.
-    // Kick 1 candidate origin = (3-1, 18+0) = (2,18):
-    //   cells (3,18),(3,19),(4,19),(3,20) — (4,19) is blocked from above,
-    //   so kick 1 also collides.
-    // Kick 2 candidate origin = (3-1, 18+1) = (2,19):
-    //   cells (3,19),(3,20),(4,20),(3,21) — (4,20) is blocked → collides.
-    // Kick 3 candidate origin = (3+0, 18-2) = (3,16):
-    //   cells (4,16),(4,17),(5,17),(4,18) — (4,18) is blocked → collides.
-    // Kick 4 candidate origin = (3-1, 18-2) = (2,16):
-    //   cells (3,16),(3,17),(4,17),(3,18) — all free → accepted!
-    //
-    // So on this board, kick 4 is the first unblocked: origin shifts by (-1,-2).
-    let mut board = Board::empty();
-    board.set(4, 18, PieceKind::T); // block kick-0 cell
-    board.set(4, 19, PieceKind::T); // block kick-0 and kick-1 cell
-    board.set(5, 19, PieceKind::T); // block kick-0 cell
-    board.set(4, 20, PieceKind::T); // block kick-0 and kick-2 cell
+    let piece = spawn(PieceKind::T);
+    let (ox, oy) = (piece.origin.0 as usize, piece.origin.1 as usize);
 
-    let piece = spawn(PieceKind::T); // origin (3,18), Zero state
+    let mut board = Board::empty();
+    board.set(ox + 1, oy + 1, PieceKind::T);
+    board.set(ox + 2, oy + 1, PieceKind::T);
+    board.set(ox + 1, oy + 2, PieceKind::T);
+    board.set(ox + 1, oy, PieceKind::T);
+
     let rotated = rotate(&piece, RotationDir::Cw, &board).expect("kick 4 (-1,-2) should succeed");
     assert_eq!(rotated.rotation, Rotation::R);
     // Kick 4: col -1, row -2
@@ -199,7 +194,8 @@ fn srs_rotation_blocked_returns_err() {
         for &(dc, dr) in t_r_offsets {
             let col = cand_origin.0 + dc;
             let row = cand_origin.1 + dr;
-            if (0..10).contains(&col) && (0..40).contains(&row) {
+            use blocktxt::game::board::{COLS, TOTAL_ROWS};
+            if (0..COLS as i32).contains(&col) && (0..TOTAL_ROWS as i32).contains(&row) {
                 board2.set(col as usize, row as usize, PieceKind::T);
             }
         }

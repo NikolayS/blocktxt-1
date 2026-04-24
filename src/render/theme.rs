@@ -267,6 +267,72 @@ impl std::str::FromStr for Palette {
     }
 }
 
+// ── Piece-to-slot mapping (originality pass) ─────────────────────────────────
+//
+// Per SPEC §1a (trade-dress safety): piece kinds are bound to semantic palette
+// slots that deliberately differ from the canonical Guideline assignments.
+// Each `PaletteSlot` names the hue the piece should adopt in every palette.
+//
+//   Canonical (avoided):   I=cyan O=yellow T=purple S=green Z=red J=blue L=orange
+//   Originality mapping:   I=orange O=pink T=green S=blue Z=yellow J=purple L=cyan
+//
+// RGB values are unchanged — only the lookup permutation differs. The mapping
+// is identical in every palette (Tokyo Night, Catppuccin, Gruvbox, Nord,
+// Dracula), enforced by unit tests in `tests/theme.rs`.
+
+/// Semantic palette slot: one hue class per slot, shared across palettes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaletteSlot {
+    Cyan,
+    Orange,
+    Yellow,
+    Pink,
+    Green,
+    Blue,
+    Purple,
+}
+
+/// The piece-kind-to-slot map used by all color palettes.
+///
+/// Indexed by `PieceKind as usize` (I=0, O=1, T=2, S=3, Z=4, J=5, L=6).
+pub const PIECE_COLOR_INDEX: [PaletteSlot; 7] = [
+    PaletteSlot::Orange, // I (was Cyan)
+    PaletteSlot::Pink,   // O (was Yellow)
+    PaletteSlot::Green,  // T (was Purple)
+    PaletteSlot::Blue,   // S (was Green)
+    PaletteSlot::Yellow, // Z (was Red)
+    PaletteSlot::Purple, // J (was Blue)
+    PaletteSlot::Cyan,   // L (was Orange)
+];
+
+/// Internal helper: resolve a `PaletteSlot` for a specific palette's seven
+/// canonical RGB constants. The argument tuple is `(cyan, orange, yellow,
+/// pink, green, blue, purple)` — ordering matches `PaletteSlot` variants.
+fn slot_color(
+    slot: PaletteSlot,
+    palette: (Color, Color, Color, Color, Color, Color, Color),
+) -> Color {
+    match slot {
+        PaletteSlot::Cyan => palette.0,
+        PaletteSlot::Orange => palette.1,
+        PaletteSlot::Yellow => palette.2,
+        PaletteSlot::Pink => palette.3,
+        PaletteSlot::Green => palette.4,
+        PaletteSlot::Blue => palette.5,
+        PaletteSlot::Purple => palette.6,
+    }
+}
+
+/// Build the 7-entry `colors` array for a palette by applying
+/// `PIECE_COLOR_INDEX` to its slot tuple.
+fn colors_for(palette: (Color, Color, Color, Color, Color, Color, Color)) -> [Color; 7] {
+    let mut out = [Color::Reset; 7];
+    for (i, slot) in PIECE_COLOR_INDEX.iter().enumerate() {
+        out[i] = slot_color(*slot, palette);
+    }
+    out
+}
+
 // ── Theme struct ──────────────────────────────────────────────────────────────
 
 /// Rendering theme: one color and one glyph per piece kind.
@@ -340,19 +406,18 @@ impl Theme {
     }
 
     /// Full RGB truecolor theme using the given palette.
+    ///
+    /// Piece colors are resolved via `PIECE_COLOR_INDEX` — each palette
+    /// declares its canonical `(cyan, orange, yellow, pink, green, blue,
+    /// purple)` slot tuple and the originality mapping picks one slot per
+    /// piece kind.
     pub fn truecolor(palette: Palette) -> Self {
+        // Filled glyph for color modes: `▰` (U+25B0, distinctive dingbat).
+        const FILLED_CHAR: char = '▰';
         match palette {
             Palette::TokyoNight => Self {
-                colors: [
-                    TN_I, // I — cyan
-                    TN_O, // O — gold
-                    TN_T, // T — purple
-                    TN_S, // S — lime
-                    TN_Z, // Z — red
-                    TN_J, // J — blue
-                    TN_L, // L — orange
-                ],
-                glyphs: ['█', '█', '█', '█', '█', '█', '█'],
+                colors: colors_for((TN_I, TN_L, TN_O, TN_Z, TN_S, TN_J, TN_T)),
+                glyphs: [FILLED_CHAR; 7],
                 monochrome: false,
                 base: TN_BASE,
                 mantle: TN_MANTLE,
@@ -363,16 +428,8 @@ impl Theme {
                 new_best: TN_NEW_BEST,
             },
             Palette::CatppuccinMocha => Self {
-                colors: [
-                    CM_I, // I — sky
-                    CM_O, // O — yellow
-                    CM_T, // T — mauve
-                    CM_S, // S — green
-                    CM_Z, // Z — pink
-                    CM_J, // J — blue
-                    CM_L, // L — peach
-                ],
-                glyphs: ['█', '█', '█', '█', '█', '█', '█'],
+                colors: colors_for((CM_I, CM_L, CM_O, CM_Z, CM_S, CM_J, CM_T)),
+                glyphs: [FILLED_CHAR; 7],
                 monochrome: false,
                 base: CM_BASE,
                 mantle: CM_MANTLE,
@@ -383,16 +440,8 @@ impl Theme {
                 new_best: CM_NEW_BEST,
             },
             Palette::GruvboxDark => Self {
-                colors: [
-                    GV_I, // I — aqua
-                    GV_O, // O — yellow
-                    GV_T, // T — purple
-                    GV_S, // S — green
-                    GV_Z, // Z — red
-                    GV_J, // J — blue
-                    GV_L, // L — orange
-                ],
-                glyphs: ['█', '█', '█', '█', '█', '█', '█'],
+                colors: colors_for((GV_I, GV_L, GV_O, GV_Z, GV_S, GV_J, GV_T)),
+                glyphs: [FILLED_CHAR; 7],
                 monochrome: false,
                 base: GV_BASE,
                 mantle: GV_MANTLE,
@@ -403,16 +452,8 @@ impl Theme {
                 new_best: GV_NEW_BEST,
             },
             Palette::Nord => Self {
-                colors: [
-                    NO_I, // I — nord8 cyan
-                    NO_O, // O — nord13 yellow
-                    NO_T, // T — nord15 purple
-                    NO_S, // S — nord14 green
-                    NO_Z, // Z — nord11 red
-                    NO_J, // J — nord9 blue
-                    NO_L, // L — nord12 orange
-                ],
-                glyphs: ['█', '█', '█', '█', '█', '█', '█'],
+                colors: colors_for((NO_I, NO_L, NO_O, NO_Z, NO_S, NO_J, NO_T)),
+                glyphs: [FILLED_CHAR; 7],
                 monochrome: false,
                 base: NO_BASE,
                 mantle: NO_MANTLE,
@@ -423,16 +464,8 @@ impl Theme {
                 new_best: NO_NEW_BEST,
             },
             Palette::Dracula => Self {
-                colors: [
-                    DR_I, // I — cyan
-                    DR_O, // O — yellow
-                    DR_T, // T — purple
-                    DR_S, // S — green
-                    DR_Z, // Z — red
-                    DR_J, // J — soft blue
-                    DR_L, // L — orange
-                ],
-                glyphs: ['█', '█', '█', '█', '█', '█', '█'],
+                colors: colors_for((DR_I, DR_L, DR_O, DR_Z, DR_S, DR_J, DR_T)),
+                glyphs: [FILLED_CHAR; 7],
                 monochrome: false,
                 base: DR_BASE,
                 mantle: DR_MANTLE,
@@ -448,18 +481,22 @@ impl Theme {
     /// 256-color palette theme with distinctive single-char glyphs.
     ///
     /// Palette parameter is accepted for API consistency but the 16-color
-    /// ANSI set is palette-agnostic by nature.
+    /// ANSI set is palette-agnostic by nature. Piece-color assignments
+    /// follow the originality-pass `PIECE_COLOR_INDEX` permutation.
     pub fn color256(_palette: Palette) -> Self {
+        // 16-color slot mapping: cyan, orange, yellow, pink, green, blue, purple.
+        // ANSI has no native orange — use White as a distinct fallback.
+        let slots: (Color, Color, Color, Color, Color, Color, Color) = (
+            Color::Cyan,
+            Color::White,
+            Color::Yellow,
+            Color::Red,
+            Color::Green,
+            Color::Blue,
+            Color::Magenta,
+        );
         Self {
-            colors: [
-                Color::Cyan,    // I
-                Color::Yellow,  // O
-                Color::Magenta, // T
-                Color::Green,   // S
-                Color::Red,     // Z
-                Color::Blue,    // J
-                Color::White,   // L (orange unavailable in 16-color)
-            ],
+            colors: colors_for(slots),
             // Visually distinct glyphs for accessibility and monochrome
             // terminals that claim 256-color support.
             glyphs: ['▓', '▒', '░', '■', '▪', '▫', '▬'],

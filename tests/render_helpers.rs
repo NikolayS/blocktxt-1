@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use blocktxt::game::board::Board;
+use blocktxt::game::board::{Board, COLS, TOTAL_ROWS};
 use blocktxt::game::piece::{Piece, PieceKind, Rotation};
 use blocktxt::render::helpers::{
     format_level, format_lines, format_score, ghost_y, next_preview_glyphs,
@@ -11,56 +11,51 @@ use blocktxt::render::theme::Theme;
 
 // ── ghost_y ──────────────────────────────────────────────────────────────────
 
-/// I-piece at col 3, row 18 on an empty board should land at row 36
-/// (the piece occupies rows origin+1 = 19..23 but the board floor is row 40
-/// and `is_occupied` returns true for row 40; cells are at origin+1 so the
-/// piece body lands with its lowest cell at row 39 ← offset 21 from origin.18).
+/// I-piece at its spawn position on an empty 12×48 board should land with
+/// its cells resting on the last visible row (row TOTAL_ROWS - 1 = 47).
 ///
 /// I piece in Zero rotation: offsets are (0,1),(1,1),(2,1),(3,1).
-/// origin=(3,18) → cells at rows 19. Floor is row 40 (out-of-bounds = true).
-/// ghost_y drops until row+1 hits the floor.
-/// body bottom is origin.1 + 1 = 19 for the piece.
-/// Can drop: 19 → 20 → ... → 39. floor triggers at row 40.
-/// ghost_y = origin.1 + offset where piece bottom == 39.
-/// Original origin.1 = 18, so offset = 39 - 19 = 20, ghost_origin = 38.
+/// origin=(4, 22) → body cells at row 23.
+/// `is_occupied` returns true for row TOTAL_ROWS.
+/// Body bottom = origin.1 + 1. Drop stops when origin.1 + 2 == TOTAL_ROWS.
+/// Therefore ghost_y = TOTAL_ROWS - 2.
 #[test]
 fn ghost_y_open_column_lands_on_floor() {
     let board = Board::empty();
-    // I piece, Zero rotation, origin (3, 18).
-    // Body cells at (3,19),(4,19),(5,19),(6,19).
-    // is_occupied returns true for row=40 (out of bounds).
-    // So piece can drop while bottom cell row < 39 (row+1 < 40).
-    // Bottom cell = origin.1 + 1. Stops when origin.1 + 1 + 1 == 40 → origin.1 = 38.
     let piece = Piece {
         kind: PieceKind::I,
         rotation: Rotation::Zero,
-        origin: (3, 18),
+        origin: (4, 22),
     };
     let g = ghost_y(&board, &piece);
-    // ghost origin row should be 38 (bottom cell at row 39, row 40 is floor).
+    let expected = (TOTAL_ROWS as i32) - 2;
     assert_eq!(
-        g, 38,
-        "I piece should land with origin at row 38 on empty board"
+        g, expected,
+        "I piece should land with origin row {expected} on empty board (got {g})"
     );
 }
 
 #[test]
 fn ghost_y_stops_on_stack() {
     let mut board = Board::empty();
-    // Place a blocker at row 30, columns 3-6.
-    for col in 0..10usize {
-        board.set(col, 30, PieceKind::O);
+    // Place a blocker at row 40, filling every column.
+    let blocker_row: usize = 40;
+    for col in 0..COLS {
+        board.set(col, blocker_row, PieceKind::O);
     }
-    // I piece Zero rotation, origin (3, 18): body cells at row origin+1.
-    // Piece body row = origin.1 + 1. Blocker at row 30.
-    // Piece can drop until origin.1 + 1 + 1 == 30 → origin.1 = 28.
+    // I piece, origin (4, 22): body cells at origin.1+1.
+    // Piece can drop while origin.1 + 2 < blocker_row.
     let piece = Piece {
         kind: PieceKind::I,
         rotation: Rotation::Zero,
-        origin: (3, 18),
+        origin: (4, 22),
     };
     let g = ghost_y(&board, &piece);
-    assert_eq!(g, 28, "I piece should stop above blocker at row 30");
+    let expected = (blocker_row as i32) - 2;
+    assert_eq!(
+        g, expected,
+        "I piece should stop above blocker at row {blocker_row}"
+    );
 }
 
 // ── format_score ─────────────────────────────────────────────────────────────

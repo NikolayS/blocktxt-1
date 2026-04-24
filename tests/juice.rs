@@ -27,10 +27,13 @@ fn make_game(seed: u64) -> (GameState, FakeClock) {
 }
 
 fn fill_row(board: &mut Board, row: usize) {
-    for col in 0..10usize {
+    for col in 0..blocktxt::game::board::COLS {
         board.set(col, row, PieceKind::O);
     }
 }
+
+/// Absolute bottom row index (for line-clear animation tests).
+const BOTTOM_ROW: usize = blocktxt::game::board::TOTAL_ROWS - 1;
 
 // ── 1. Spawn-fade animation ───────────────────────────────────────────────────
 
@@ -116,12 +119,12 @@ fn score_rollup_target_leads_current() {
     let (mut gs, clock) = make_game(42);
 
     // Fill bottom row to trigger line clear on hard drop.
-    fill_row(&mut gs.board, 39);
+    fill_row(&mut gs.board, BOTTOM_ROW);
 
     // Hard drop locks the piece (existing active piece won't complete the row
     // since it starts at top). Instead inject the anim directly.
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![BOTTOM_ROW],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -131,7 +134,7 @@ fn score_rollup_target_leads_current() {
     });
 
     // Drive to end of animation so score is computed.
-    let anim_done = Duration::from_millis(200);
+    let anim_done = Duration::from_millis(250);
     clock.advance(anim_done);
     gs.step(anim_done, &[]);
 
@@ -154,9 +157,9 @@ fn score_rollup_target_leads_current() {
 fn score_rollup_catches_up_after_250ms() {
     let (mut gs, clock) = make_game(42);
 
-    fill_row(&mut gs.board, 39);
+    fill_row(&mut gs.board, BOTTOM_ROW);
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![BOTTOM_ROW],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -166,7 +169,7 @@ fn score_rollup_catches_up_after_250ms() {
     });
 
     // Drive anim to completion.
-    let anim_done = Duration::from_millis(200);
+    let anim_done = Duration::from_millis(250);
     clock.advance(anim_done);
     gs.step(anim_done, &[]);
 
@@ -186,9 +189,9 @@ fn score_rollup_catches_up_after_250ms() {
 fn score_rollup_interpolates_at_midpoint() {
     let (mut gs, clock) = make_game(42);
 
-    fill_row(&mut gs.board, 39);
+    fill_row(&mut gs.board, BOTTOM_ROW);
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![BOTTOM_ROW],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -197,7 +200,7 @@ fn score_rollup_interpolates_at_midpoint() {
         pending_b2b_active: false,
     });
 
-    let anim_done = Duration::from_millis(200);
+    let anim_done = Duration::from_millis(250);
     clock.advance(anim_done);
     gs.step(anim_done, &[]);
 
@@ -294,15 +297,15 @@ fn flash_phase_is_distinct_from_dim_phase() {
     // We assert the phases themselves are distinct enum variants.
     assert_ne!(
         LineClearPhase::Flash,
-        LineClearPhase::Dim,
+        LineClearPhase::WipeOutward,
         "Flash and Dim phases must be distinct"
     );
 
     // And that the animation transitions correctly.
     let (mut gs, clock) = make_game(42);
-    fill_row(&mut gs.board, 39);
+    fill_row(&mut gs.board, BOTTOM_ROW);
     gs.line_clear_anim = Some(LineClearAnim {
-        rows: vec![39],
+        rows: vec![BOTTOM_ROW],
         started_at: clock.now(),
         phase: LineClearPhase::Flash,
         board_snapshot: gs.board.clone(),
@@ -311,20 +314,20 @@ fn flash_phase_is_distinct_from_dim_phase() {
         pending_b2b_active: false,
     });
 
-    // At 50ms still Flash.
-    clock.advance(Duration::from_millis(50));
-    gs.step(Duration::from_millis(50), &[]);
+    // Well inside the flash window — phase is still Flash.
+    clock.advance(Duration::from_millis(20));
+    gs.step(Duration::from_millis(20), &[]);
     assert_eq!(
         gs.line_clear_anim.as_ref().unwrap().phase,
         LineClearPhase::Flash
     );
 
-    // At 100ms transitions to Dim.
-    clock.advance(Duration::from_millis(50));
-    gs.step(Duration::from_millis(50), &[]);
+    // After the flash boundary the phase transitions to WipeOutward.
+    clock.advance(Duration::from_millis(40));
+    gs.step(Duration::from_millis(40), &[]);
     assert_eq!(
         gs.line_clear_anim.as_ref().unwrap().phase,
-        LineClearPhase::Dim
+        LineClearPhase::WipeOutward
     );
 }
 

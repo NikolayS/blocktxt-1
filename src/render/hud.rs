@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::game::piece::{PieceKind, Rotation};
+use crate::game::piece::PieceKind;
 use crate::game::state::{GameState, Phase};
 use crate::persistence::HighScoreStore;
 use crate::render::helpers::{format_level, format_lines, format_score};
@@ -155,7 +155,7 @@ fn draw_hold(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
         let cell_text: String = if theme.monochrome {
             format!("{}{}", glyph, glyph)
         } else {
-            "██".to_string()
+            crate::render::board_view::FILLED.to_string()
         };
         let cell_style = if theme.monochrome {
             Style::default().fg(Color::Reset)
@@ -189,7 +189,12 @@ fn draw_hold(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
     }
 }
 
-/// Draw next-piece preview showing actual piece shapes for the next 3 pieces.
+/// Draw the originality-pass "next" preview.
+///
+/// Shows only ONE upcoming piece (see SPEC §1a — trade-dress safety) and
+/// renders it as the piece's letter centered in a bordered box, not as a
+/// miniature playfield of cells. The letter is colored with the piece's
+/// accent hue from the current palette (per the re-mapped `PIECE_COLOR_INDEX`).
 fn draw_next_preview(frame: &mut Frame, area: Rect, state: &GameState, theme: &Theme) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -200,65 +205,43 @@ fn draw_next_preview(frame: &mut Frame, area: Rect, state: &GameState, theme: &T
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Render up to 3 pieces as actual shapes (double-wide cells).
-    let preview_count = 3usize.min(state.next_queue.len());
-    // Each piece preview occupies 3 rows (2 cell rows + 1 gap), except the last.
-    for (idx, &kind) in state.next_queue.iter().take(preview_count).enumerate() {
-        let start_y = inner.y + (idx as u16) * 3;
-        if start_y >= inner.y + inner.height {
-            break;
-        }
-        render_piece_preview(frame, inner, start_y, kind, theme);
-    }
-}
-
-/// Render a single piece's shape preview starting at `start_y` within `area`.
-///
-/// Uses Zero rotation. Each cell = 2 terminal cols wide, 1 row tall.
-/// Pieces are rendered left-aligned within the inner area.
-fn render_piece_preview(
-    frame: &mut Frame,
-    area: Rect,
-    start_y: u16,
-    kind: PieceKind,
-    theme: &Theme,
-) {
-    use crate::game::piece::Piece;
-
-    let piece = Piece {
-        kind,
-        rotation: Rotation::Zero,
-        origin: (0, 0),
+    let Some(kind) = state.peek_next_kind() else {
+        return;
     };
 
+    let letter = piece_letter(kind);
     let color = if theme.monochrome {
         Color::Reset
     } else {
         theme.color(kind)
     };
-    let glyph = theme.glyph(kind);
-    let cell_text: String = if theme.monochrome {
-        format!("{}{}", glyph, glyph)
+    let style = if theme.monochrome {
+        Style::default().fg(color).add_modifier(Modifier::BOLD)
     } else {
-        "██".to_string()
-    };
-    let cell_style = if theme.monochrome {
-        Style::default().fg(Color::Reset)
-    } else {
-        Style::default().fg(color).bg(BASE)
+        Style::default()
+            .fg(color)
+            .bg(BASE)
+            .add_modifier(Modifier::BOLD)
     };
 
-    for (col, row) in piece.cells() {
-        // col and row are offsets from origin (0,0), so bounding box coords.
-        let x = area.x + (col as u16) * 2;
-        let y = start_y + row as u16;
-        if x + 2 > area.x + area.width || y >= area.y + area.height {
-            continue;
-        }
-        frame.render_widget(
-            Paragraph::new(Span::styled(cell_text.clone(), cell_style)),
-            Rect::new(x, y, 2, 1),
-        );
+    let para = Paragraph::new(Line::from(Span::styled(letter.to_string(), style)))
+        .alignment(Alignment::Center);
+    frame.render_widget(para, inner);
+}
+
+/// Return the ASCII letter used to represent `kind` in the HUD preview.
+///
+/// These are the canonical piece names from the spec and double as the
+/// monochrome-mode glyphs.
+fn piece_letter(kind: PieceKind) -> char {
+    match kind {
+        PieceKind::I => 'I',
+        PieceKind::O => 'O',
+        PieceKind::T => 'T',
+        PieceKind::S => 'S',
+        PieceKind::Z => 'Z',
+        PieceKind::J => 'J',
+        PieceKind::L => 'L',
     }
 }
 

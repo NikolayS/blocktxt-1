@@ -248,16 +248,19 @@ fn shape_offsets_l(kind: PieceKind) -> &'static [(i32, i32)] {
     }
 }
 
-/// Spawn a piece at the Guideline-inspired spawn position.
+/// Spawn a piece centered in the 12-wide originality-pass playfield.
 ///
-/// Per SPEC §4 (round-2 decision):
-/// - O: 2-wide bbox top-left at (col=4, row=18) → cells at cols 4..=5.
-/// - I: 4-wide bbox top-left at (col=3, row=18) → bbox cols 3..7.
-/// - J, L, S, T, Z: 4-wide bbox top-left at (col=3, row=18) → bbox cols 3..7.
+/// Row 22 is the last row of the 24-row hidden buffer; piece cells sit at
+/// rows 22–23 so the piece is wholly buffered on spawn.
+///
+/// - O: 2-wide bbox top-left at (col=5, row=22) → cells at cols 5..=6.
+/// - I: 4-wide bbox top-left at (col=4, row=22) → bbox cols 4..8.
+/// - J, L, S, T, Z: 4-wide (well, 3-wide content, 4-wide centered slot) bbox
+///   top-left at (col=4, row=22) → bbox cols 4..7.
 pub fn spawn(kind: PieceKind) -> Piece {
     let origin = match kind {
-        PieceKind::O => (4, 18),
-        _ => (3, 18),
+        PieceKind::O => (5, 22),
+        _ => (4, 22),
     };
     Piece {
         kind,

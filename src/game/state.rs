@@ -15,7 +15,7 @@ use rand::SeedableRng;
 
 use crate::clock::Clock;
 use crate::game::bag::Bag;
-use crate::game::board::Board;
+use crate::game::board::{Board, BUFFER_ROWS, COLS, TOTAL_ROWS};
 use crate::game::piece::{spawn, Piece, PieceKind};
 use crate::game::rules::{
     gravity_duration, level_after_lines, score_line_clear, soft_drop_effective_dt, LockState,
@@ -24,12 +24,17 @@ use crate::game::srs::{rotate, RotationDir};
 
 // ── Line-clear animation constants ───────────────────────────────────────────
 
-/// Duration of the flash phase (phase 1): 0–100 ms.
-pub const ANIM_FLASH_MS: u64 = 100;
-/// Duration of the dim phase (phase 2): 100–200 ms.
-pub const ANIM_DIM_MS: u64 = 100;
-/// Total animation budget: ≤ 200 ms.
-pub const ANIM_TOTAL_MS: u64 = ANIM_FLASH_MS + ANIM_DIM_MS;
+/// Duration of the flash phase (phase 1): 0–50 ms.
+///
+/// The originality-pass animation is a wipe-from-center; the flash window is
+/// a short "pop" before the wipe begins so the cleared rows catch the eye.
+pub const ANIM_FLASH_MS: u64 = 50;
+/// Duration of the wipe-outward phase (phase 2): 50–250 ms (200 ms wipe).
+pub const ANIM_WIPE_MS: u64 = 200;
+/// Legacy alias retained for tests that reference the old dim-phase duration.
+pub const ANIM_DIM_MS: u64 = ANIM_WIPE_MS;
+/// Total animation budget.
+pub const ANIM_TOTAL_MS: u64 = ANIM_FLASH_MS + ANIM_WIPE_MS;
 
 // ── Spawn-fade animation constants ────────────────────────────────────────────
 
@@ -52,17 +57,24 @@ pub const GAMEOVER_ZOOM_MS: u64 = 200;
 
 // ── Line-clear animation state ────────────────────────────────────────────────
 
-/// Three-phase line-clear animation driven by elapsed wall time.
+/// Originality-pass line-clear animation phases.
 ///
-/// Phase 1 (0–100 ms): cleared rows shown flashed (inverse/bright fill).
-/// Phase 2 (100–200 ms): rows shown dimmer (transition).
-/// Phase 3 (≥ 200 ms): rows removed, cells above shift down (handled by
+/// Phase 1 (0–50 ms): `Flash` — cleared rows shown with bright flash glyph.
+/// Phase 2 (50–250 ms): `WipeOutward` — rows wipe from the center column
+///   outward, collapsing to background as the wipe radius expands.
+/// Phase 3 (≥ 250 ms): rows removed, cells above shift down (handled by
 ///   transitioning `pending_clear` → actual `Board::clear_full_rows`).
+///
+/// The `Dim` variant is retained as a transitional alias of `WipeOutward`
+/// so fixture tests that reference the old name continue to compile; the
+/// renderer treats both uniformly by reading elapsed time directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LineClearPhase {
-    /// Flash phase: `elapsed` < 100 ms.
+    /// Flash phase: `elapsed` < `ANIM_FLASH_MS`.
     Flash,
-    /// Dim/transition phase: 100 ms ≤ `elapsed` < 200 ms.
+    /// Wipe-outward phase.
+    WipeOutward,
+    /// Legacy alias for `WipeOutward`; kept so older tests compile.
     Dim,
 }
 
@@ -221,7 +233,9 @@ pub enum Event {
 pub enum GameOverReason {
     /// The spawn zone was occupied when a new piece tried to spawn.
     BlockOut,
-    /// A piece locked while entirely above the visible playfield (row < 20).
+    /// A piece locked while entirely above the visible playfield.
+    ///
+    /// "Entirely above" means every cell row is < `BUFFER_ROWS`.
     LockOut,
 }
 
@@ -308,6 +322,16 @@ impl GameState {
     /// mutable borrow of the state.
     pub fn now(&self) -> std::time::Instant {
         self.clock.now()
+    }
+
+    /// Peek the single piece kind that will spawn next.
+    ///
+    /// Returns `None` when the queue is empty (Title phase, pre-StartGame).
+    /// The originality-pass HUD surfaces only one lookahead — see SPEC §1a
+    /// for rationale — so this is the sole preview accessor the renderer
+    /// should use.
+    pub fn peek_next_kind(&self) -> Option<PieceKind> {
+        self.next_queue.front().copied()
     }
 
     /// Create a new game seeded with `seed`.
@@ -771,8 +795,8 @@ impl GameState {
             None => return,
         };
 
-        // Check lock-out: piece entirely above visible playfield (row < 20).
-        let all_above = piece.cells().iter().all(|&(_, r)| r < 20);
+        // Check lock-out: piece entirely above visible playfield.
+        let all_above = piece.cells().iter().all(|&(_, r)| r < BUFFER_ROWS as i32);
         if all_above {
             let now = self.clock.now();
             self.phase = Phase::GameOver {
@@ -788,7 +812,7 @@ impl GameState {
 
         // Place piece on the board.
         for (c, r) in piece.cells() {
-            if c >= 0 && r >= 0 && c < 10 && r < 40 {
+            if c >= 0 && r >= 0 && (c as usize) < COLS && (r as usize) < TOTAL_ROWS {
                 self.board.set(c as usize, r as usize, piece.kind);
             }
         }
@@ -796,8 +820,8 @@ impl GameState {
         events.push(Event::PieceLocked);
 
         // Detect full rows before clearing them.
-        let full_rows: Vec<usize> = (0..40)
-            .filter(|&r| (0..10usize).all(|c| self.board.cell_kind(c, r).is_some()))
+        let full_rows: Vec<usize> = (0..TOTAL_ROWS)
+            .filter(|&r| (0..COLS).all(|c| self.board.cell_kind(c, r).is_some()))
             .collect();
 
         // Reset lock state and gravity accumulator.
@@ -830,7 +854,7 @@ impl GameState {
     // ── Animation ────────────────────────────────────────────────────────────
 
     /// Advance the line-clear animation by checking elapsed time against the
-    /// clock. Transitions Flash → Dim → finished. On finish, calls
+    /// clock. Transitions Flash → WipeOutward → finished. On finish, calls
     /// `finish_anim` to apply board mutation and spawn the next piece.
     fn tick_anim(&mut self, events: &mut Vec<Event>) {
         let now = self.clock.now();
@@ -847,9 +871,9 @@ impl GameState {
             let anim = self.line_clear_anim.take().unwrap();
             self.finish_anim(anim, events);
         } else if elapsed >= flash_dur {
-            // Phase 2: dim.
+            // Phase 2: wipe outward.
             if let Some(anim) = &mut self.line_clear_anim {
-                anim.phase = LineClearPhase::Dim;
+                anim.phase = LineClearPhase::WipeOutward;
             }
         }
         // Phase 1 (Flash) is the initial state — nothing to change.

@@ -1,0 +1,26 @@
+{
+  "slug": "multiplayer-v1",
+  "phase": "draft",
+  "round_index": 1,
+  "version": "0.2.0",
+  "persona": {
+    "skill": "real-time multiplayer game networking engineer",
+    "accepted": true
+  },
+  "push_consent": null,
+  "calibration": null,
+  "remote_stale": false,
+  "coupled_fallback": false,
+  "head_sha": "55378aeb3f87cac9459aa974a1db882984f8fd4a",
+  "round_state": "lead_terminal",
+  "exit": {
+    "code": 4,
+    "reason": "lead-terminal:revise_timeout",
+    "round_index": 2
+  },
+  "created_at": "2026-04-24T03:59:03.348Z",
+  "updated_at": "2026-04-24T04:50:37.645Z",
+  "input": {
+    "idea": "Add two-player competitive multiplayer to blocktxt (v0.2)."
+  }
+}
